@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "world.landfall.verbatim.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "refmap": "verbatim.refmap.json",
+  "mixins": [
+  ],
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
