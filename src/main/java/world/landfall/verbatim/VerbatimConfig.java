@@ -35,7 +35,8 @@ public class VerbatimConfig {
             "  separator: String (optional) - Separator between name and message (e.g., \" » \"). Defaults to \": \".",
             "  separatorColor: String (optional) - Color for the separator (e.g., \"&7\"). Defaults to channel's messageColor if omitted, or white.",
             "  messageColor: String (optional) - Color for the message content (e.g., \"&f\"). Defaults to white.",
-            "  alwaysOn: Boolean (optional) - If true, players cannot '/channel leave' this channel. Defaults to false."
+            "  alwaysOn: Boolean (optional) - If true, players cannot '/channel leave' this channel. Defaults to false.",
+            "  specialChannelType: String (optional) - Special behavior type (e.g., \"local\" for roleplay features). Defaults to none."
         );
 
         Supplier<List<? extends UnmodifiableConfig>> defaultChannelsSupplier = () -> {
@@ -65,6 +66,7 @@ public class VerbatimConfig {
             localChannel.set("separatorColor", "&7");
             localChannel.set("messageColor", "&7");
             localChannel.set("alwaysOn", true);
+            localChannel.set("specialChannelType", "local");
             defaults.add(localChannel);
 
             CommentedConfig staffChannel = TomlFormat.newConfig();
@@ -134,6 +136,10 @@ public class VerbatimConfig {
             }
             if (config.contains("alwaysOn") && !(config.get("alwaysOn") instanceof Boolean)) {
                 Verbatim.LOGGER.warn("[VerbatimConfigValidator] Channel '{}': 'alwaysOn' is not a Boolean.", entryName);
+                return false;
+            }
+            if (config.contains("specialChannelType") && !(config.get("specialChannelType") instanceof String)) {
+                Verbatim.LOGGER.warn("[VerbatimConfigValidator] Channel '{}': 'specialChannelType' is not a String.", entryName);
                 return false;
             }
             // Verbatim.LOGGER.debug("[VerbatimConfigValidator] Channel '{}' passed validation.", entryName); // Remove or comment out debug log

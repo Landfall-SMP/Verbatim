@@ -5,12 +5,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 public class ChatFormattingUtils {
-
-    private static final Pattern COLOR_CODE_PATTERN = Pattern.compile("&([0-9a-fk-orA-FK-OR])");
 
     public static Component parseColors(String text) {
         if (text == null || text.isEmpty()) {
@@ -60,6 +55,6 @@ public class ChatFormattingUtils {
         if (format == ChatFormatting.UNDERLINE) return baseStyle.withUnderlined(true);
         if (format == ChatFormatting.STRIKETHROUGH) return baseStyle.withStrikethrough(true);
         if (format == ChatFormatting.OBFUSCATED) return baseStyle.withObfuscated(true);
-        return baseStyle; // Should not happen if ChatFormatting.isFormat() was true
+        return baseStyle;
     }
 } 

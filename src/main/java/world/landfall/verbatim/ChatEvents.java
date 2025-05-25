@@ -9,6 +9,8 @@ import net.minecraftforge.event.ServerChatEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import world.landfall.verbatim.specialchannels.FormattedMessageDetails;
+import world.landfall.verbatim.specialchannels.LocalChannelFormatter;
 
 import java.util.Optional;
 import java.util.Set;
@@ -129,14 +131,28 @@ public class ChatEvents {
 
         Verbatim.LOGGER.debug("[Verbatim ChatEvent] Send permission GRANTED for channel {}. Formatting and sending message.", finalTargetChannel.name);
 
-        // --- Format and Send Message --- 
-        MutableComponent finalMessage = Component.empty();
-        finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.displayPrefix));
-        finalMessage.append(Component.literal(" "));
-        Component playerNameComponent = ChatFormattingUtils.parseColors(finalTargetChannel.nameColor + sender.getName().getString());
-        finalMessage.append(playerNameComponent);
-        finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.separatorColor + finalTargetChannel.separator));
-        finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.messageColor + messageContent));
+        // --- Special Channel Processing ---
+        Optional<FormattedMessageDetails> specialFormatResult = LocalChannelFormatter.formatLocalMessage(sender, finalTargetChannel, messageContent);
+        
+        MutableComponent finalMessage;
+        int effectiveRange;
+        
+        if (specialFormatResult.isPresent()) {
+            // Special channel formatting was applied
+            FormattedMessageDetails details = specialFormatResult.get();
+            finalMessage = details.formattedMessage;
+            effectiveRange = details.effectiveRange;
+        } else {
+            // Standard channel formatting
+            effectiveRange = finalTargetChannel.range;
+            finalMessage = Component.empty();
+            finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.displayPrefix));
+            finalMessage.append(Component.literal(" "));
+            Component playerNameComponent = ChatFormattingUtils.parseColors(finalTargetChannel.nameColor + sender.getName().getString());
+            finalMessage.append(playerNameComponent);
+            finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.separatorColor + finalTargetChannel.separator));
+            finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.messageColor + messageContent));
+        }
 
         MinecraftServer server = sender.getServer();
 
@@ -144,12 +160,21 @@ public class ChatEvents {
             // Check if recipient is joined to the target channel AND has permission (unless alwaysOn)
             if (ChatChannelManager.isJoined(recipient, finalTargetChannel.name)) {
                 if (finalTargetChannel.alwaysOn || Verbatim.permissionService.hasPermission(recipient, finalTargetChannel.permission.orElse(null), 2)) {
-                    // Ranged check
-                    if (finalTargetChannel.range >= 0) {
-                        if (recipient.distanceToSqr(sender) <= (double)finalTargetChannel.range * finalTargetChannel.range || recipient.equals(sender)) {
-                            recipient.sendSystemMessage(finalMessage);
+                    // Handle message sending based on range
+                    if (effectiveRange >= 0) {
+                        double distSqr = recipient.distanceToSqr(sender);
+                        if (recipient.equals(sender)) {
+                            recipient.sendSystemMessage(finalMessage); // Sender always sees their own message clearly
+                        } else {
+                            MutableComponent messageToSend = specialFormatResult
+                                .map(details -> details.getMessageForDistance(distSqr))
+                                .orElseGet(() -> distSqr <= effectiveRange * effectiveRange ? finalMessage : null);
+                            
+                            if (messageToSend != null) {
+                                recipient.sendSystemMessage(messageToSend);
+                            }
                         }
-                    } else { // Global
+                    } else { // Global range
                         recipient.sendSystemMessage(finalMessage);
                     }
                 } else {
