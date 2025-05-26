@@ -25,8 +25,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.stream.Stream;
 
 public class VerbatimCommands {
+
+    // Permission Nodes for Admin Commands
+    public static final String PERM_ADMIN_CHLIST = "verbatim.admin.chlist";
+    public static final String PERM_ADMIN_CHKICK = "verbatim.admin.chkick";
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> listAllChannelsCommand =
@@ -195,6 +201,52 @@ public class VerbatimCommands {
             Commands.literal("vlist")
                 .executes(context -> listOnlinePlayers(context.getSource()));
         dispatcher.register(verbatimListCommand);
+
+        // Admin command: /chlist <target>
+        LiteralArgumentBuilder<CommandSourceStack> chListCommand = Commands.literal("chlist")
+            .requires(source -> {
+                if (source.getEntity() instanceof ServerPlayer player) {
+                    return Verbatim.permissionService.hasPermission(player, PERM_ADMIN_CHLIST, 2);
+                }
+                return source.hasPermission(2); // Allow console or other non-players with OP level 2
+            })
+            .then(Commands.argument("target", StringArgumentType.string())
+                .suggests((context, builder) -> {
+                    List<String> suggestions = new ArrayList<>();
+                    MinecraftServer server = context.getSource().getServer();
+                    if (server != null) {
+                        server.getPlayerList().getPlayers().forEach(player -> suggestions.add(player.getName().getString()));
+                    }
+                    ChatChannelManager.getAllChannelConfigs().forEach(channel -> suggestions.add(channel.name));
+                    return SharedSuggestionProvider.suggest(suggestions, builder);
+                })
+                .executes(context -> {
+                    String targetName = StringArgumentType.getString(context, "target");
+                    return executeChList(context.getSource(), targetName);
+                })
+            );
+        dispatcher.register(chListCommand);
+
+        // Admin command: /chkick <player> <channel>
+        LiteralArgumentBuilder<CommandSourceStack> chKickCommand = Commands.literal("chkick")
+            .requires(source -> {
+                if (source.getEntity() instanceof ServerPlayer player) {
+                    return Verbatim.permissionService.hasPermission(player, PERM_ADMIN_CHKICK, 2);
+                }
+                return source.hasPermission(2); // Allow console or other non-players with OP level 2
+            })
+            .then(Commands.argument("player", EntityArgument.player())
+                .then(Commands.argument("channel", StringArgumentType.string())
+                    .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                        ChatChannelManager.getAllChannelConfigs().stream().map(c -> c.name).collect(Collectors.toList()), builder))
+                    .executes(context -> {
+                        ServerPlayer playerToKick = EntityArgument.getPlayer(context, "player");
+                        String channelName = StringArgumentType.getString(context, "channel");
+                        return executeChKick(context.getSource(), playerToKick, channelName);
+                    })
+                )
+            );
+        dispatcher.register(chKickCommand);
     }
 
     private static int executeCustomListCommand(CommandSourceStack source) {
@@ -386,5 +438,65 @@ public class VerbatimCommands {
         }
 
         return sendDirectMessage(sender, target, message);
+    }
+
+    private static int executeChList(CommandSourceStack source, String targetName) {
+        // Determine if targetName is a player or a channel
+        MinecraftServer server = source.getServer();
+        ServerPlayer targetPlayer = server.getPlayerList().getPlayerByName(targetName);
+
+        if (targetPlayer != null) {
+            // Target is a player, list channels they are in
+            Set<String> joinedChannels = ChatChannelManager.getJoinedChannels(targetPlayer);
+            if (joinedChannels.isEmpty()) {
+                source.sendSuccess(() -> Component.literal(targetPlayer.getName().getString() + " is not in any channels.").withStyle(ChatFormatting.YELLOW), false);
+                return 1;
+            }
+            MutableComponent message = Component.literal("Channels for " + targetPlayer.getName().getString() + ":\n").withStyle(ChatFormatting.GOLD);
+            for (String channelName : joinedChannels) {
+                ChatChannelManager.getChannelConfigByName(channelName).ifPresent(config -> {
+                    message.append(Component.literal(" - " + config.name).withStyle(ChatFormatting.AQUA))
+                           .append(Component.literal(" (" + config.displayPrefix + ")\n").withStyle(ChatFormatting.GRAY));
+                });
+            }
+            source.sendSuccess(() -> message, false);
+        } else {
+            // Target is potentially a channel, list players in it
+            Optional<ChatChannelManager.ChannelConfig> channelConfigOpt = ChatChannelManager.getChannelConfigByName(targetName);
+            if (channelConfigOpt.isPresent()) {
+                ChatChannelManager.ChannelConfig channelConfig = channelConfigOpt.get();
+                List<ServerPlayer> playersInChannel = ChatChannelManager.getPlayersInChannel(server, targetName); // Needs this new method in ChatChannelManager
+                
+                if (playersInChannel.isEmpty()) {
+                    source.sendSuccess(() -> Component.literal("No players are in channel " + channelConfig.name + ".").withStyle(ChatFormatting.YELLOW), false);
+                    return 1;
+                }
+                MutableComponent message = Component.literal("Players in channel " + channelConfig.name + ":\n").withStyle(ChatFormatting.GOLD);
+                for (ServerPlayer p : playersInChannel) {
+                    message.append(Component.literal(" - " + p.getName().getString() + "\n").withStyle(ChatFormatting.AQUA));
+                }
+                source.sendSuccess(() -> message, false);
+            } else {
+                source.sendFailure(Component.literal("Target '" + targetName + "' is not a valid online player or channel name."));
+                return 0;
+            }
+        }
+        return 1;
+    }
+
+    private static int executeChKick(CommandSourceStack source, ServerPlayer playerToKick, String channelName) {
+        // This will call a new method in ChatChannelManager
+        boolean success = ChatChannelManager.adminKickPlayerFromChannel(playerToKick, channelName, source.getPlayer()); // Pass command executor for feedback/logging
+        if (success) {
+            source.sendSuccess(() -> Component.literal("Kicked " + playerToKick.getName().getString() + " from channel " + channelName + ".").withStyle(ChatFormatting.GREEN), true);
+        } else {
+            // ChatChannelManager should send more specific failure feedback
+            // For example, if channel is alwaysOn, or player not in channel, or channel not found.
+            // If ChatChannelManager doesn't send feedback for some reason, this is a fallback.
+             if (!ChatChannelManager.getChannelConfigByName(channelName).map(c -> c.alwaysOn).orElse(false)) {
+                 source.sendFailure(Component.literal("Failed to kick " + playerToKick.getName().getString() + " from " + channelName + ". Player might not be in it or channel is always-on."));
+             }
+        }
+        return success ? 1 : 0;
     }
 } 

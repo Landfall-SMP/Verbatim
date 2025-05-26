@@ -9,9 +9,12 @@ import net.minecraftforge.event.ServerChatEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import world.landfall.verbatim.chat.FocusTarget;
+import world.landfall.verbatim.chat.ChatFocus;
 import world.landfall.verbatim.specialchannels.FormattedMessageDetails;
 import world.landfall.verbatim.specialchannels.LocalChannelFormatter;
 import world.landfall.verbatim.discord.DiscordBot;
+import world.landfall.verbatim.ChatFormattingUtils;
 
 import java.util.Optional;
 import java.util.Set;
@@ -23,6 +26,12 @@ public class ChatEvents {
     @SubscribeEvent
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            // Check if ChatChannelManager is properly initialized
+            if (!ChatChannelManager.isInitialized()) {
+                Verbatim.LOGGER.warn("[Verbatim ChatEvent] ChatChannelManager not yet initialized during login for {}. Skipping channel setup.", player.getName().getString());
+                return;
+            }
+            
             ChatChannelManager.playerLoggedIn(player);
             
             if (DiscordBot.isEnabled()) {
@@ -30,15 +39,15 @@ public class ChatEvents {
             }
 
             ChatChannelManager.getFocus(player).ifPresent(focus -> {
-                if (focus instanceof ChatChannelManager.ChannelFocus) {
-                    ChatChannelManager.ChannelConfig config = ChatChannelManager.getChannelConfigByName(((ChatChannelManager.ChannelFocus) focus).channelName).orElse(null);
+                if (focus instanceof ChatFocus && ((ChatFocus) focus).getType() == ChatFocus.FocusType.CHANNEL) {
+                    ChatChannelManager.ChannelConfig config = ChatChannelManager.getChannelConfigByName(((ChatFocus) focus).getChannelName()).orElse(null);
                     if (config != null) {
                         player.sendSystemMessage(Component.literal("🗨 Focused channel: ")
                             .append(ChatFormattingUtils.parseColors(config.displayPrefix))
                             .append(Component.literal(" " + config.name).withStyle(ChatFormatting.YELLOW))
                         );
                     }
-                } else if (focus instanceof ChatChannelManager.DmFocus) {
+                } else if (focus instanceof ChatFocus && ((ChatFocus) focus).getType() == ChatFocus.FocusType.DM) {
                     player.sendSystemMessage(Component.literal("💬 Focused DM: ")
                         .append(Component.literal(focus.getDisplayName()).withStyle(ChatFormatting.YELLOW))
                     );
@@ -76,8 +85,15 @@ public class ChatEvents {
         Verbatim.LOGGER.debug("[Verbatim ChatEvent] Raw message from {}: {}", sender.getName().getString(), rawMessageText);
         event.setCanceled(true);
 
+        // Check if ChatChannelManager is properly initialized
+        if (!ChatChannelManager.isInitialized()) {
+            Verbatim.LOGGER.warn("[Verbatim ChatEvent] ChatChannelManager not yet initialized. Deferring message from {}.", sender.getName().getString());
+            sender.sendSystemMessage(Component.literal("Chat system is still initializing. Please try again in a moment.").withStyle(ChatFormatting.YELLOW));
+            return;
+        }
+
         String messageContent = rawMessageText;
-        Optional<ChatChannelManager.FocusTarget> targetFocusOpt = Optional.empty();
+        Optional<FocusTarget> targetFocusOpt = Optional.empty();
 
         // Handle prefixes (colon or semicolon)
         int colonIndex = rawMessageText.indexOf(':');
@@ -105,8 +121,8 @@ public class ChatEvents {
                     return; // Only focused, no message to send
                 }
                 
-                Optional<ChatChannelManager.FocusTarget> currentFocus = ChatChannelManager.getFocus(sender);
-                if (currentFocus.isPresent() && currentFocus.get() instanceof ChatChannelManager.DmFocus) {
+                Optional<FocusTarget> currentFocus = ChatChannelManager.getFocus(sender);
+                if (currentFocus.isPresent() && currentFocus.get() instanceof ChatFocus && ((ChatFocus) currentFocus.get()).getType() == ChatFocus.FocusType.DM) {
                     targetFocusOpt = currentFocus;
                 } else {
                     Verbatim.LOGGER.debug("[Verbatim ChatEvent] d: prefix failed to establish DM focus. Message not sent.");
@@ -118,7 +134,7 @@ public class ChatEvents {
                 ChatChannelManager.ChannelConfig defaultChannel = ChatChannelManager.getDefaultChannelConfig();
                 if (defaultChannel != null) {
                     ChatChannelManager.focusChannel(sender, defaultChannel.name); 
-                    targetFocusOpt = Optional.of(new ChatChannelManager.ChannelFocus(defaultChannel.name));
+                    targetFocusOpt = Optional.of(ChatFocus.createChannelFocus(defaultChannel.name));
                     messageContent = rawMessageText.substring(separatorIndex + 1).trim();
                     
                     if (messageContent.isEmpty()) {
@@ -141,7 +157,7 @@ public class ChatEvents {
                     ChatChannelManager.focusChannel(sender, prospectiveChannel.name);
                     
                     if (ChatChannelManager.isJoined(sender, prospectiveChannel.name)) {
-                        targetFocusOpt = Optional.of(new ChatChannelManager.ChannelFocus(prospectiveChannel.name));
+                        targetFocusOpt = Optional.of(ChatFocus.createChannelFocus(prospectiveChannel.name));
                         messageContent = rawMessageText.substring(separatorIndex + 1).trim();
                         Verbatim.LOGGER.debug("[Verbatim ChatEvent] Shortcut permission GRANTED for '{}'. Player focused. Message content: \"{}\"", prospectiveChannel.name, messageContent);
                         
@@ -167,7 +183,7 @@ public class ChatEvents {
                 ChatChannelManager.ChannelConfig defaultChannel = ChatChannelManager.getDefaultChannelConfig();
                 if (defaultChannel != null) {
                     ChatChannelManager.focusChannel(sender, defaultChannel.name);
-                    targetFocusOpt = Optional.of(new ChatChannelManager.ChannelFocus(defaultChannel.name));
+                    targetFocusOpt = Optional.of(ChatFocus.createChannelFocus(defaultChannel.name));
                     sender.sendSystemMessage(Component.literal("You were not focused on anything. Message sent to default: ")
                         .append(ChatFormattingUtils.parseColors(defaultChannel.displayPrefix))
                         .append(Component.literal(" " + defaultChannel.name).withStyle(ChatFormatting.YELLOW)));
@@ -179,112 +195,120 @@ public class ChatEvents {
             }
         }
         
-        ChatChannelManager.FocusTarget finalTarget = targetFocusOpt.get();
+        FocusTarget finalTarget = targetFocusOpt.get();
 
-        // Handle DMs
-        if (finalTarget instanceof ChatChannelManager.DmFocus) {
-            ChatChannelManager.DmFocus dmFocus = (ChatChannelManager.DmFocus) finalTarget;
-            ServerPlayer targetPlayer = ChatChannelManager.getPlayerByUUID(dmFocus.targetPlayerId);
-            
-            if (targetPlayer == null) {
-                sender.sendSystemMessage(Component.literal("Cannot send DM: Target player is not online.").withStyle(ChatFormatting.RED));
-                return;
-            }
-            
-            ChatChannelManager.setLastIncomingDmSender(targetPlayer, sender.getUUID());
-            
-            MutableComponent senderMessage = Component.literal("[You -> ")
-                .withStyle(ChatFormatting.LIGHT_PURPLE)
-                .append(Component.literal(targetPlayer.getName().getString()).withStyle(ChatFormatting.YELLOW))
-                .append(Component.literal("]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-                .append(Component.literal(messageContent).withStyle(ChatFormatting.WHITE));
+        try {
+            // Handle DMs
+            if (finalTarget instanceof ChatFocus && ((ChatFocus) finalTarget).getType() == ChatFocus.FocusType.DM) {
+                ChatFocus dmFocus = (ChatFocus) finalTarget;
+                ServerPlayer targetPlayer = ChatChannelManager.getPlayerByUUID(dmFocus.getTargetPlayerId());
                 
-            MutableComponent recipientMessage = Component.literal("[")
-                .withStyle(ChatFormatting.LIGHT_PURPLE)
-                .append(Component.literal(sender.getName().getString()).withStyle(ChatFormatting.YELLOW))
-                .append(Component.literal(" -> You]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-                .append(Component.literal(messageContent).withStyle(ChatFormatting.WHITE));
-            
-            sender.sendSystemMessage(senderMessage);
-            targetPlayer.sendSystemMessage(recipientMessage);
-            return;
-        }
-
-        // --- Handle Channel Messages ---
-        if (finalTarget instanceof ChatChannelManager.ChannelFocus) {
-            ChatChannelManager.ChannelFocus channelFocus = (ChatChannelManager.ChannelFocus) finalTarget;
-            Optional<ChatChannelManager.ChannelConfig> channelConfigOpt = ChatChannelManager.getChannelConfigByName(channelFocus.channelName);
-            
-            if (channelConfigOpt.isEmpty()) {
-                sender.sendSystemMessage(Component.literal("Error: Focused channel no longer exists.").withStyle(ChatFormatting.RED));
-                return;
-            }
-            
-            ChatChannelManager.ChannelConfig finalTargetChannel = channelConfigOpt.get();
-
-            // Check send permission
-            if (!finalTargetChannel.alwaysOn && finalTargetChannel.permission.isPresent() && !Verbatim.permissionService.hasPermission(sender, finalTargetChannel.permission.get(), 2)) {
-                Verbatim.LOGGER.info("[Verbatim ChatEvent] Player {} lost permission to send to target channel '{}'. Auto-leaving & focusing default.", sender.getName().getString(), finalTargetChannel.name);
-                ChatChannelManager.autoLeaveChannel(sender, finalTargetChannel.name);
-                sender.sendSystemMessage(Component.literal("You no longer have permission to send messages in '")
-                    .append(ChatFormattingUtils.parseColors(finalTargetChannel.displayPrefix + " " + finalTargetChannel.name))
-                    .append(Component.literal("'. Message not sent.")).withStyle(ChatFormatting.RED));
+                if (targetPlayer == null) {
+                    sender.sendSystemMessage(Component.literal("Cannot send DM: Target player is not online.").withStyle(ChatFormatting.RED));
+                    return;
+                }
+                
+                ChatChannelManager.setLastIncomingDmSender(targetPlayer, sender.getUUID());
+                
+                MutableComponent senderMessage = Component.literal("[You -> ")
+                    .withStyle(ChatFormatting.LIGHT_PURPLE)
+                    .append(Component.literal(targetPlayer.getName().getString()).withStyle(ChatFormatting.YELLOW))
+                    .append(Component.literal("]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
+                    .append(Component.literal(messageContent).withStyle(ChatFormatting.WHITE));
+                    
+                MutableComponent recipientMessage = Component.literal("[")
+                    .withStyle(ChatFormatting.LIGHT_PURPLE)
+                    .append(Component.literal(sender.getName().getString()).withStyle(ChatFormatting.YELLOW))
+                    .append(Component.literal(" -> You]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
+                    .append(Component.literal(messageContent).withStyle(ChatFormatting.WHITE));
+                
+                sender.sendSystemMessage(senderMessage);
+                targetPlayer.sendSystemMessage(recipientMessage);
                 return;
             }
 
-            // Discord Integration
-            if (DiscordBot.isEnabled() && "global".equals(finalTargetChannel.name)) {
-                DiscordBot.sendPlayerChatMessageToDiscord(sender, messageContent);
-            }
+            // --- Handle Channel Messages ---
+            if (finalTarget instanceof ChatFocus && ((ChatFocus) finalTarget).getType() == ChatFocus.FocusType.CHANNEL) {
+                ChatFocus channelFocus = (ChatFocus) finalTarget;
+                Optional<ChatChannelManager.ChannelConfig> channelConfigOpt = ChatChannelManager.getChannelConfigByName(channelFocus.getChannelName());
+                
+                if (channelConfigOpt.isEmpty()) {
+                    sender.sendSystemMessage(Component.literal("Error: Focused channel no longer exists.").withStyle(ChatFormatting.RED));
+                    return;
+                }
+                
+                ChatChannelManager.ChannelConfig finalTargetChannel = channelConfigOpt.get();
 
-            // Format message
-            Optional<FormattedMessageDetails> specialFormatResult = LocalChannelFormatter.formatLocalMessage(sender, finalTargetChannel, messageContent);
-            
-            MutableComponent finalMessage;
-            int effectiveRange;
-            
-            if (specialFormatResult.isPresent()) {
-                FormattedMessageDetails details = specialFormatResult.get();
-                finalMessage = details.formattedMessage;
-                effectiveRange = details.effectiveRange;
-            } else {
-                effectiveRange = finalTargetChannel.range;
-                finalMessage = Component.empty();
-                finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.displayPrefix));
-                finalMessage.append(Component.literal(" "));
-                Component playerNameComponent = ChatFormattingUtils.createPlayerNameComponent(sender, finalTargetChannel.nameColor, false);
-                finalMessage.append(playerNameComponent);
-                finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.separatorColor + finalTargetChannel.separator));
-                finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.messageColor + messageContent));
-            }
+                // Check send permission
+                if (!finalTargetChannel.alwaysOn && finalTargetChannel.permission.isPresent() && !Verbatim.permissionService.hasPermission(sender, finalTargetChannel.permission.get(), 2)) {
+                    Verbatim.LOGGER.info("[Verbatim ChatEvent] Player {} lost permission to send to target channel '{}'. Auto-leaving & focusing default.", sender.getName().getString(), finalTargetChannel.name);
+                    ChatChannelManager.autoLeaveChannel(sender, finalTargetChannel.name);
+                    sender.sendSystemMessage(Component.literal("You no longer have permission to send messages in '")
+                        .append(ChatFormattingUtils.parseColors(finalTargetChannel.displayPrefix + " " + finalTargetChannel.name))
+                        .append(Component.literal("'. Message not sent.")).withStyle(ChatFormatting.RED));
+                    return;
+                }
 
-            MinecraftServer server = sender.getServer();
+                // Discord Integration
+                if (DiscordBot.isEnabled() && "global".equals(finalTargetChannel.name)) {
+                    DiscordBot.sendPlayerChatMessageToDiscord(sender, messageContent);
+                }
 
-            for (ServerPlayer recipient : server.getPlayerList().getPlayers()) {
-                if (ChatChannelManager.isJoined(recipient, finalTargetChannel.name)) {
-                    if (finalTargetChannel.alwaysOn || !finalTargetChannel.permission.isPresent() || Verbatim.permissionService.hasPermission(recipient, finalTargetChannel.permission.get(), 2)) {
-                        if (effectiveRange >= 0) {
-                            double distSqr = recipient.distanceToSqr(sender);
-                            if (recipient.equals(sender)) {
-                                recipient.sendSystemMessage(finalMessage);
-                            } else {
-                                MutableComponent messageToSend = specialFormatResult
-                                    .map(details -> details.getMessageForDistance(distSqr))
-                                    .orElseGet(() -> distSqr <= effectiveRange * effectiveRange ? finalMessage : null);
-                                
-                                if (messageToSend != null) {
-                                    recipient.sendSystemMessage(messageToSend);
+                // Format message
+                Optional<FormattedMessageDetails> specialFormatResult = LocalChannelFormatter.formatLocalMessage(sender, finalTargetChannel, messageContent);
+                
+                MutableComponent finalMessage;
+                int effectiveRange;
+                
+                if (specialFormatResult.isPresent()) {
+                    FormattedMessageDetails details = specialFormatResult.get();
+                    finalMessage = details.formattedMessage;
+                    effectiveRange = details.effectiveRange;
+                } else {
+                    effectiveRange = finalTargetChannel.range;
+                    finalMessage = Component.empty();
+                    finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.displayPrefix));
+                    finalMessage.append(Component.literal(" "));
+                    Component playerNameComponent = ChatFormattingUtils.createPlayerNameComponent(sender, finalTargetChannel.nameColor, false);
+                    finalMessage.append(playerNameComponent);
+                    finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.separatorColor + finalTargetChannel.separator));
+                    finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.messageColor + messageContent));
+                }
+
+                MinecraftServer server = sender.getServer();
+
+                for (ServerPlayer recipient : server.getPlayerList().getPlayers()) {
+                    if (ChatChannelManager.isJoined(recipient, finalTargetChannel.name)) {
+                        if (finalTargetChannel.alwaysOn || !finalTargetChannel.permission.isPresent() || Verbatim.permissionService.hasPermission(recipient, finalTargetChannel.permission.get(), 2)) {
+                            if (effectiveRange >= 0) {
+                                double distSqr = recipient.distanceToSqr(sender);
+                                if (recipient.equals(sender)) {
+                                    recipient.sendSystemMessage(finalMessage);
+                                } else {
+                                    MutableComponent messageToSend = specialFormatResult
+                                        .map(details -> details.getMessageForDistance(distSqr))
+                                        .orElseGet(() -> distSqr <= effectiveRange * effectiveRange ? finalMessage : null);
+                                    
+                                    if (messageToSend != null) {
+                                        recipient.sendSystemMessage(messageToSend);
+                                    }
                                 }
+                            } else {
+                                recipient.sendSystemMessage(finalMessage);
                             }
                         } else {
-                            recipient.sendSystemMessage(finalMessage);
+                            Verbatim.LOGGER.info("[Verbatim ChatEvent] Recipient {} is joined to '{}' but lost permission. Auto-leaving.", recipient.getName().getString(), finalTargetChannel.name);
+                            ChatChannelManager.autoLeaveChannel(recipient, finalTargetChannel.name);
                         }
-                    } else {
-                        Verbatim.LOGGER.info("[Verbatim ChatEvent] Recipient {} is joined to '{}' but lost permission. Auto-leaving.", recipient.getName().getString(), finalTargetChannel.name);
-                        ChatChannelManager.autoLeaveChannel(recipient, finalTargetChannel.name);
                     }
                 }
             }
+        } catch (NoClassDefFoundError e) {
+            Verbatim.LOGGER.error("[Verbatim ChatEvent] Class loading error during message processing. Chat system may still be initializing.", e);
+            sender.sendSystemMessage(Component.literal("Chat system is still initializing. Please try again in a moment.").withStyle(ChatFormatting.YELLOW));
+        } catch (Exception e) {
+            Verbatim.LOGGER.error("[Verbatim ChatEvent] Unexpected error during message processing.", e);
+            sender.sendSystemMessage(Component.literal("An error occurred while processing your message.").withStyle(ChatFormatting.RED));
         }
     }
     
@@ -296,7 +320,8 @@ public class ChatEvents {
                 Set<String> currentJoined = ChatChannelManager.getJoinedChannels(player);
                 for (String joinedChannelName : new HashSet<>(currentJoined)) {
                     ChatChannelManager.getChannelConfigByName(joinedChannelName).ifPresent(config -> {
-                        if (!config.alwaysOn && !Verbatim.permissionService.hasPermission(player, config.permission.orElse(null), 2)) {
+                        // Only check permission if the channel actually has a permission requirement
+                        if (!config.alwaysOn && config.permission.isPresent() && !Verbatim.permissionService.hasPermission(player, config.permission.get(), 2)) {
                             Verbatim.LOGGER.info("[Verbatim ConfigReload] Player {} lost permission for joined channel '{}' after config reload. Auto-leaving.", player.getName().getString(), config.name);
                             ChatChannelManager.autoLeaveChannel(player, config.name);
                         }

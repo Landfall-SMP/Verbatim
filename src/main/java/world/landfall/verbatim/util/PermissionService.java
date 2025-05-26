@@ -29,7 +29,7 @@ public class PermissionService {
             } catch (IllegalStateException e) {
                 this.luckPermsApi = null;
                 this.luckPermsAvailable = false;
-                Verbatim.LOGGER.info("[Verbatim PermissionService] LuckPerms API not found. Permissions will use vanilla OP levels as fallback.");
+                Verbatim.LOGGER.warn("[Verbatim PermissionService] LuckPerms API not found. Permissions will try to use vanilla OP levels as fallback. This is not recommended.");
             }
         }
     }
@@ -64,12 +64,12 @@ public class PermissionService {
             User user = this.luckPermsApi.getUserManager().getUser(player.getUUID());
             if (user != null) {
                 boolean checkResult = user.getCachedData().getPermissionData().checkPermission(permissionNode).asBoolean();
-                Verbatim.LOGGER.info("[Verbatim PermissionService] LuckPerms check for player '{}', node '{}': {} (UUID: {})", 
+                Verbatim.LOGGER.debug("[Verbatim PermissionService] LuckPerms check for player '{}', node '{}': {} (UUID: {})", 
                                    player.getName().getString(), permissionNode, checkResult, player.getUUID());
                 
                 // Additional debugging: Check if user has ANY permissions
                 if (!checkResult) {
-                    Verbatim.LOGGER.info("[Verbatim PermissionService] Permission denied. User's effective permissions: {}", 
+                    Verbatim.LOGGER.debug("[Verbatim PermissionService] Permission denied. User's effective permissions: {}", 
                                        user.getCachedData().getPermissionData().getPermissionMap().keySet());
                 }
                 
