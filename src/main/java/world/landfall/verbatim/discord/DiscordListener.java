@@ -11,10 +11,12 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 import world.landfall.verbatim.Verbatim;
 import world.landfall.verbatim.ChatFormattingUtils;
 
+import javax.annotation.Nonnull;
+
 public class DiscordListener extends ListenerAdapter {
 
     @Override
-    public void onMessageReceived(MessageReceivedEvent event) {
+    public void onMessageReceived(@Nonnull MessageReceivedEvent event) {
         if (!DiscordBot.isEnabled()) return;
 
         User author = event.getAuthor();
@@ -34,8 +36,9 @@ public class DiscordListener extends ListenerAdapter {
 
         String authorName;
         Member member = event.getMember(); // Get member object to access nickname
-        if (member != null && member.getNickname() != null && !member.getNickname().isEmpty()) {
-            authorName = member.getNickname();
+        String nickname = member != null ? member.getNickname() : null;
+        if (nickname != null && !nickname.isEmpty()) {
+            authorName = nickname;
         } else {
             authorName = author.getName(); // Fallback to global username
         }

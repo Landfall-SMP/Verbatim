@@ -26,8 +26,7 @@ public class ChatEvents {
             ChatChannelManager.playerLoggedIn(player); // Handles loading saved state, joining alwaysOn, permission checks for saved
             
             if (DiscordBot.isEnabled()) {
-                String playerName = player.getName().getString();
-                DiscordBot.sendToDiscord("**" + playerName + " has joined the server.**");
+                DiscordBot.sendToDiscord("**" + ChatFormattingUtils.createDiscordPlayerName(player) + " has joined the server.**");
             }
 
             // Show current focus (channel or DM)
@@ -66,8 +65,7 @@ public class ChatEvents {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             if (DiscordBot.isEnabled()) {
-                String playerName = player.getName().getString();
-                DiscordBot.sendToDiscord("**" + playerName + " has left the server.**");
+                DiscordBot.sendToDiscord("**" + ChatFormattingUtils.createDiscordPlayerName(player) + " has left the server.**");
             }
             ChatChannelManager.playerLoggedOut(player);
         }
@@ -240,7 +238,7 @@ public class ChatEvents {
             // --- Discord Integration ---
             if (DiscordBot.isEnabled() && "global".equals(finalTargetChannel.name)) {
                 // Bold the player's name and the colon for Discord
-                DiscordBot.sendToDiscord("**" + sender.getName().getString() + ":** " + messageContent);
+                DiscordBot.sendToDiscord("**" + ChatFormattingUtils.createDiscordPlayerName(sender) + ":** " + messageContent);
             }
 
             // --- Special Channel Processing ---
@@ -260,7 +258,7 @@ public class ChatEvents {
                 finalMessage = Component.empty();
                 finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.displayPrefix));
                 finalMessage.append(Component.literal(" "));
-                Component playerNameComponent = ChatFormattingUtils.parseColors(finalTargetChannel.nameColor + sender.getName().getString());
+                Component playerNameComponent = ChatFormattingUtils.createPlayerNameComponent(sender, finalTargetChannel.nameColor, false);
                 finalMessage.append(playerNameComponent);
                 finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.separatorColor + finalTargetChannel.separator));
                 finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.messageColor + messageContent));
