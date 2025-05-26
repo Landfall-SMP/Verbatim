@@ -104,16 +104,18 @@ public class ChatChannelManager {
         public final String separatorColor; 
         public final String messageColor; 
         public final boolean alwaysOn; // If true, cannot be left via /leave and permission is IGNORED (public)
+        public final boolean mature; // If true, shows mature content warning when joining
         public final Optional<String> specialChannelType; // For special channel behaviors like "local"
 
         public ChannelConfig(String name, String displayPrefix, String shortcut, String permission, Number range,
-                             String nameColor, String separator, String separatorColor, String messageColor, Boolean alwaysOn, String specialChannelType) {
+                             String nameColor, String separator, String separatorColor, String messageColor, Boolean alwaysOn, Boolean mature, String specialChannelType) {
             this.name = name;
             this.displayPrefix = displayPrefix;
             this.shortcut = shortcut;
             this.alwaysOn = (alwaysOn == null) ? false : alwaysOn;
-            // If alwaysOn is true, permission is effectively ignored (channel is public)
-            this.permission = (this.alwaysOn || permission == null || permission.isEmpty()) ? Optional.empty() : Optional.of(permission);
+            this.mature = (mature == null) ? false : mature;
+            // If alwaysOn is true or permission is null/empty, treat as no permission required
+            this.permission = (this.alwaysOn || permission == null || permission.trim().isEmpty()) ? Optional.empty() : Optional.of(permission);
             this.range = (range == null) ? -1 : range.intValue();
             
             this.messageColor = (messageColor == null || messageColor.isEmpty()) ? "&f" : messageColor;
@@ -147,11 +149,12 @@ public class ChatChannelManager {
                 String separatorColor = channelConf.getOptional("separatorColor").map(String::valueOf).orElse(null);
                 String messageColor = channelConf.getOptional("messageColor").map(String::valueOf).orElse(null);
                 Boolean alwaysOn = channelConf.getOptional("alwaysOn").map(v -> (Boolean)v).orElse(false);
+                Boolean mature = channelConf.getOptional("mature").map(v -> (Boolean)v).orElse(false);
                 String specialChannelType = channelConf.getOptional("specialChannelType").map(String::valueOf).orElse(null);
 
                 if (name != null && !name.isEmpty() && displayPrefix != null && shortcut != null && !shortcut.isEmpty()) {
                     ChannelConfig parsedConfig = new ChannelConfig(name, displayPrefix, shortcut, permissionStr, range,
-                                                                 nameColor, separator, separatorColor, messageColor, alwaysOn, specialChannelType);
+                                                                 nameColor, separator, separatorColor, messageColor, alwaysOn, mature, specialChannelType);
                     if (channelConfigsByName.containsKey(name)) {
                         Verbatim.LOGGER.warn("Duplicate channel name in config: '{}'. Ignoring subsequent definition.", name);
                         continue;
@@ -236,7 +239,16 @@ public class ChatChannelManager {
         // Ensure all alwaysOn channels are joined by default, and permission is checked for others
         for (ChannelConfig config : channelConfigsByName.values()) {
             if (config.alwaysOn) {
+                boolean wasJoined = loadedJoinedChannels.contains(config.name);
                 internalJoinChannel(player, config.name, true); // Force join alwaysOn, skip permission check
+                
+                // Show mature content warning if this is a mature channel and the player wasn't already joined
+                if (!wasJoined && config.mature) {
+                    player.sendSystemMessage(Component.literal("⚠ WARNING: This channel may contain mature content!").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
+                    player.sendSystemMessage(Component.literal("By remaining in this channel, you confirm that you are 18+ and okay with seeing messages posted here.").withStyle(ChatFormatting.YELLOW));
+                    player.sendSystemMessage(Component.literal("If you are not comfortable with this, please leave immediately using: ").withStyle(ChatFormatting.YELLOW)
+                        .append(Component.literal("/channel leave").withStyle(ChatFormatting.WHITE, ChatFormatting.UNDERLINE)));
+                }
             } else if (loadedJoinedChannels.contains(config.name)) {
                 // If it was in their saved list and not alwaysOn, check permission now
                 if (!Verbatim.permissionService.hasPermission(player, config.permission.orElse(null), 2)) {
@@ -308,8 +320,8 @@ public class ChatChannelManager {
         ChannelConfig config = channelConfigsByName.get(channelName);
         if (config == null) return false;
 
-        // alwaysOn channels bypass permission check here as per new requirement
-        if (!forceJoin && !config.alwaysOn && !Verbatim.permissionService.hasPermission(player, config.permission.orElse(null), 2)) {
+        // Only check permission if the channel has one and isn't being force joined
+        if (!forceJoin && config.permission.isPresent() && !Verbatim.permissionService.hasPermission(player, config.permission.get(), 2)) {
             return false;
         }
         joinedChannels.computeIfAbsent(player.getUUID(), k -> new HashSet<>()).add(channelName);
@@ -330,10 +342,19 @@ public class ChatChannelManager {
             return true; // Already joined
         }
 
-        if (config.alwaysOn || Verbatim.permissionService.hasPermission(player, config.permission.orElse(null), 2)) {
+        // Only check permission if the channel has one and isn't alwaysOn
+        if (config.alwaysOn || !config.permission.isPresent() || Verbatim.permissionService.hasPermission(player, config.permission.get(), 2)) {
             internalJoinChannel(player, channelName, config.alwaysOn);
             player.sendSystemMessage(Component.literal("Joined channel: ").withStyle(ChatFormatting.GREEN)
                 .append(ChatFormattingUtils.parseColors(config.displayPrefix + " " + config.name)));
+            
+            // Show mature content warning if this is a mature channel
+            if (config.mature) {
+                player.sendSystemMessage(Component.literal("⚠ WARNING: This channel may contain mature content. ⚠").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
+                player.sendSystemMessage(Component.literal("By remaining in this channel, you confirm that you are 18+ and okay with seeing messages posted here.").withStyle(ChatFormatting.YELLOW));
+                player.sendSystemMessage(Component.literal("If you are not comfortable with this, please leave immediately using: ").withStyle(ChatFormatting.YELLOW)
+                    .append(Component.literal("/channel leave").withStyle(ChatFormatting.WHITE, ChatFormatting.UNDERLINE)));
+            }
             return true;
         } else {
             player.sendSystemMessage(Component.literal("You do not have permission to join channel: ")
@@ -413,14 +434,22 @@ public class ChatChannelManager {
             return;
         }
 
-        // If alwaysOn, join/focus is allowed regardless of specific permission string.
-        // Otherwise, normal permission check applies.
-        if (config.alwaysOn || Verbatim.permissionService.hasPermission(player, config.permission.orElse(null), 2)) {
+        // Only check permission if the channel has one and isn't alwaysOn
+        if (config.alwaysOn || !config.permission.isPresent() || Verbatim.permissionService.hasPermission(player, config.permission.get(), 2)) {
+            boolean wasJoined = isJoined(player, channelName);
             internalJoinChannel(player, channelName, config.alwaysOn); // Ensure joined (force if alwaysOn)
             playerFocus.put(player.getUUID(), new ChannelFocus(channelName));
             savePlayerChannelState(player);
             player.sendSystemMessage(Component.literal("Focused channel: ")
                 .append(ChatFormattingUtils.parseColors(config.displayPrefix + " " + config.name)).withStyle(ChatFormatting.GREEN));
+            
+            // Show mature content warning if this is a mature channel and the player wasn't already joined
+            if (!wasJoined && config.mature) {
+                player.sendSystemMessage(Component.literal("⚠ WARNING: This channel may contain mature content. ⚠").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
+                player.sendSystemMessage(Component.literal("By remaining in this channel, you confirm that you are 18+ and okay with seeing messages posted here.").withStyle(ChatFormatting.YELLOW));
+                player.sendSystemMessage(Component.literal("If you are not comfortable with this, please leave immediately using: ").withStyle(ChatFormatting.YELLOW)
+                    .append(Component.literal("/channel leave").withStyle(ChatFormatting.WHITE, ChatFormatting.UNDERLINE)));
+            }
         } else {
             player.sendSystemMessage(Component.literal("Cannot focus channel '")
                 .append(ChatFormattingUtils.parseColors(config.displayPrefix + " " + config.name))

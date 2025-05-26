@@ -43,7 +43,8 @@ public class VerbatimConfig {
             "  separatorColor: String (optional) - Color for the separator (e.g., \"&7\"). Defaults to channel's messageColor if omitted, or white.",
             "  messageColor: String (optional) - Color for the message content (e.g., \"&f\"). Defaults to white.",
             "  alwaysOn: Boolean (optional) - If true, players cannot '/channel leave' this channel. Defaults to false.",
-            "  specialChannelType: String (optional) - Special behavior type (e.g., \"local\" for roleplay features). Defaults to none."
+            "  specialChannelType: String (optional) - Special behavior type (e.g., \"local\" for roleplay features). Defaults to none.",
+            "  mature: Boolean (optional) - If true, shows a mature content warning when joining. Defaults to false."
         );
 
         Supplier<List<? extends UnmodifiableConfig>> defaultChannelsSupplier = () -> {
@@ -60,6 +61,7 @@ public class VerbatimConfig {
             globalChannel.set("separatorColor", "&7");
             globalChannel.set("messageColor", "&f");
             globalChannel.set("alwaysOn", true);
+            globalChannel.set("mature", false);
             defaults.add(globalChannel);
 
             CommentedConfig localChannel = TomlFormat.newConfig();
@@ -74,6 +76,7 @@ public class VerbatimConfig {
             localChannel.set("messageColor", "&7");
             localChannel.set("alwaysOn", true);
             localChannel.set("specialChannelType", "local");
+            localChannel.set("mature", false);
             defaults.add(localChannel);
 
             CommentedConfig staffChannel = TomlFormat.newConfig();
@@ -87,6 +90,7 @@ public class VerbatimConfig {
             staffChannel.set("separatorColor", "&5");
             staffChannel.set("messageColor", "&d");
             staffChannel.set("alwaysOn", false);
+            staffChannel.set("mature", false);
             defaults.add(staffChannel);
 
             return defaults;
@@ -147,6 +151,10 @@ public class VerbatimConfig {
             }
             if (config.contains("specialChannelType") && !(config.get("specialChannelType") instanceof String)) {
                 Verbatim.LOGGER.warn("[VerbatimConfigValidator] Channel '{}': 'specialChannelType' is not a String.", entryName);
+                return false;
+            }
+            if (config.contains("mature") && !(config.get("mature") instanceof Boolean)) {
+                Verbatim.LOGGER.warn("[VerbatimConfigValidator] Channel '{}': 'mature' is not a Boolean.", entryName);
                 return false;
             }
             // Verbatim.LOGGER.debug("[VerbatimConfigValidator] Channel '{}' passed validation.", entryName); // Remove or comment out debug log

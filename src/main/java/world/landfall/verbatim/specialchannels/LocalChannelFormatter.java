@@ -141,6 +141,24 @@ public class LocalChannelFormatter {
             localActionText = ""; // No verb, direct action text formatting
             applyPlusStyleFormatting = true;
             messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 1);
+        } else if (originalMessageContent.endsWith("))")) {
+            effectiveRange = -1; // Global range for OOC
+            localActionText = ""; // No verb for OOC
+            applyPlusStyleFormatting = false;
+            messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 2);
+            
+            // Create OOC format
+            MutableComponent finalMessage = Component.empty();
+            finalMessage.append(Component.literal("[OOC] ").withStyle(ChatFormatting.DARK_GRAY));
+            
+            // Add player name
+            String playerName = sender.getName().getString();
+            String displayName = sender.getDisplayName().getString();
+            
+            finalMessage.append(Component.literal(playerName + " (" + displayName + "): ").withStyle(ChatFormatting.DARK_GRAY));
+            finalMessage.append(Component.literal(messageAfterSuffixRemoval.trim()).withStyle(ChatFormatting.DARK_GRAY));
+            
+            return Optional.of(new FormattedMessageDetails(finalMessage, effectiveRange, false, "&8")); // Use dark gray for any obscuring
         }
         // If no suffix matches, use defaults (range 50, " says:")
 
