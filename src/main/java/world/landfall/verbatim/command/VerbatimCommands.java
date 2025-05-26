@@ -6,28 +6,22 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.MessageArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
 import net.minecraft.server.level.ServerPlayer;
 import world.landfall.verbatim.ChatChannelManager;
 import world.landfall.verbatim.ChatFormattingUtils;
-import world.landfall.verbatim.Verbatim; // Import Verbatim for MODID and permissionService
+import world.landfall.verbatim.Verbatim;
 import net.minecraft.network.chat.MutableComponent;
 
 import java.util.Collection;
 import java.util.stream.Collectors;
 import java.util.Set;
+import java.util.Optional;
 
 public class VerbatimCommands {
-
-    // Permission nodes are no longer used for gating the commands themselves,
-    // but constants can be kept if you plan to reintroduce command-level perms later
-    // or for other purposes. For now, they are effectively unused by .requires().
-    // private static final String PERM_NODE_BASE_COMMAND = Verbatim.MODID + ".command.channel";
-    // private static final String PERM_NODE_LIST = PERM_NODE_BASE_COMMAND + ".list";
-    // private static final String PERM_NODE_HELP = PERM_NODE_BASE_COMMAND + ".help";
-    // private static final String PERM_NODE_FOCUS = PERM_NODE_BASE_COMMAND + ".focus";
-    // private static final String PERM_NODE_LEAVE = PERM_NODE_BASE_COMMAND + ".leave";
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> listAllChannelsCommand =
@@ -90,6 +84,102 @@ public class VerbatimCommands {
         dispatcher.register(channelCommand);
         dispatcher.register(Commands.literal(Verbatim.MODID + "channels").redirect(listAllChannelsCommand.build()));
         dispatcher.register(Commands.literal(Verbatim.MODID + "channel").redirect(channelCommand.build()));
+
+        // Override vanilla DM Commands - register these AFTER vanilla commands are registered
+        // This will override the vanilla /msg and /tell commands by using the SAME argument tree structure ("targets" & "message") that vanilla uses.
+        LiteralArgumentBuilder<CommandSourceStack> msgCommand = Commands.literal("msg")
+            .then(Commands.argument("targets", EntityArgument.players())
+                // Focus-only variant (no message supplied)
+                .executes(context -> {
+                    if (!(context.getSource().getEntity() instanceof ServerPlayer sender)) {
+                        context.getSource().sendFailure(Component.literal("Players only."));
+                        return 0;
+                    }
+                    Collection<ServerPlayer> targets = EntityArgument.getPlayers(context, "targets");
+                    if (targets.isEmpty()) {
+                        sender.sendSystemMessage(Component.literal("No valid player targets.").withStyle(ChatFormatting.RED));
+                        return 0;
+                    }
+                    // Focus on the first target only (consistent with /r behaviour)
+                    ChatChannelManager.focusDm(sender, targets.iterator().next().getUUID());
+                    return 1;
+                })
+                // Variant with message text supplied
+                .then(Commands.argument("message", MessageArgument.message())
+                    .executes(context -> {
+                        if (!(context.getSource().getEntity() instanceof ServerPlayer sender)) {
+                            context.getSource().sendFailure(Component.literal("Players only."));
+                            return 0;
+                        }
+                        Collection<ServerPlayer> targets = EntityArgument.getPlayers(context, "targets");
+                        String message = MessageArgument.getMessage(context, "message").getString();
+                        int successes = 0;
+                        for (ServerPlayer target : targets) {
+                            successes += sendDirectMessage(sender, target, message);
+                        }
+                        return successes;
+                    }))
+            );
+
+        LiteralArgumentBuilder<CommandSourceStack> tellCommand = Commands.literal("tell")
+            .then(Commands.argument("targets", EntityArgument.players())
+                .executes(context -> {
+                    if (!(context.getSource().getEntity() instanceof ServerPlayer sender)) {
+                        context.getSource().sendFailure(Component.literal("Players only."));
+                        return 0;
+                    }
+                    Collection<ServerPlayer> targets = EntityArgument.getPlayers(context, "targets");
+                    if (targets.isEmpty()) {
+                        sender.sendSystemMessage(Component.literal("No valid player targets.").withStyle(ChatFormatting.RED));
+                        return 0;
+                    }
+                    ChatChannelManager.focusDm(sender, targets.iterator().next().getUUID());
+                    return 1;
+                })
+                .then(Commands.argument("message", MessageArgument.message())
+                    .executes(context -> {
+                        if (!(context.getSource().getEntity() instanceof ServerPlayer sender)) {
+                            context.getSource().sendFailure(Component.literal("Players only."));
+                            return 0;
+                        }
+                        Collection<ServerPlayer> targets = EntityArgument.getPlayers(context, "targets");
+                        String message = MessageArgument.getMessage(context, "message").getString();
+                        int successes = 0;
+                        for (ServerPlayer target : targets) {
+                            successes += sendDirectMessage(sender, target, message);
+                        }
+                        return successes;
+                    }))
+            );
+
+        LiteralArgumentBuilder<CommandSourceStack> replyCommand = Commands.literal("r")
+            // Variant with message -> reply immediately
+            .then(Commands.argument("message", MessageArgument.message())
+                .executes(context -> {
+                    if (!(context.getSource().getEntity() instanceof ServerPlayer sender)) {
+                        context.getSource().sendFailure(Component.literal("Players only."));
+                        return 0;
+                    }
+                    String message = MessageArgument.getMessage(context, "message").getString();
+                    return replyToLastDm(sender, message);
+                }))
+            // No message -> just focus last DM sender (equivalent to d: prefix)
+            .executes(context -> {
+                if (!(context.getSource().getEntity() instanceof ServerPlayer sender)) {
+                    context.getSource().sendFailure(Component.literal("Players only."));
+                    return 0;
+                }
+                ChatChannelManager.handleDPrefix(sender);
+                return 1;
+            });
+
+        // Register our commands - these will override vanilla commands if they exist
+        dispatcher.register(msgCommand);
+        dispatcher.register(tellCommand);
+        dispatcher.register(replyCommand);
+        
+        // Also register alternative names to ensure we catch all variants
+        dispatcher.register(Commands.literal("w").redirect(msgCommand.build())); // /w is another common alias for whisper/msg
     }
 
     private static int listChannels(CommandSourceStack source) {
@@ -148,11 +238,63 @@ public class VerbatimCommands {
         helpMessage.append("/channel join <channelName> - Joins a channel to receive messages.\n");
         helpMessage.append("/channel leave <channelName> - Leaves a joined channel.\n");
         helpMessage.append("/channel leave - Leaves your currently focused channel (if not alwaysOn).\n");
-        helpMessage.append("/channel help - Shows this help message.\n");
+        helpMessage.append("/channel help - Shows this help message.\n\n");
+        
+        helpMessage.append(Component.literal("Direct Message Commands:\n").withStyle(ChatFormatting.AQUA));
+        helpMessage.append("/msg <player> [message] - Focus DM with player (and send message if provided).\n");
+        helpMessage.append("/tell <player> [message] - Same as /msg.\n");
+        helpMessage.append("/r [message] - Reply to last DM sender (and send message if provided).\n\n");
+        
+        helpMessage.append(Component.literal("Chat Prefixes:\n").withStyle(ChatFormatting.GREEN));
+        helpMessage.append("d: - Focus on last DM sender (same as /r without message).\n");
+        helpMessage.append("g: - Switch to global chat.\n");
         helpMessage.append(Component.literal("Use shortcuts like ").withStyle(ChatFormatting.GRAY))
             .append(Component.literal("g: your message").withStyle(ChatFormatting.ITALIC))
             .append(Component.literal(" to send to global (if shortcut is 'g') and focus it.").withStyle(ChatFormatting.GRAY));
         source.sendSuccess(() -> helpMessage, false);
         return 1;
+    }
+
+    private static int sendDirectMessage(ServerPlayer sender, ServerPlayer target, String message) {
+        // Focus sender on target
+        ChatChannelManager.focusDm(sender, target.getUUID());
+        
+        // Update recipient's last incoming DM sender
+        ChatChannelManager.setLastIncomingDmSender(target, sender.getUUID());
+        
+        // Format and send DM messages
+        MutableComponent senderMessage = Component.literal("[You -> ")
+            .withStyle(ChatFormatting.LIGHT_PURPLE)
+            .append(Component.literal(target.getName().getString()).withStyle(ChatFormatting.YELLOW))
+            .append(Component.literal("]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
+            .append(Component.literal(message).withStyle(ChatFormatting.WHITE));
+            
+        MutableComponent recipientMessage = Component.literal("[")
+            .withStyle(ChatFormatting.LIGHT_PURPLE)
+            .append(Component.literal(sender.getName().getString()).withStyle(ChatFormatting.YELLOW))
+            .append(Component.literal(" -> You]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
+            .append(Component.literal(message).withStyle(ChatFormatting.WHITE));
+        
+        sender.sendSystemMessage(senderMessage);
+        target.sendSystemMessage(recipientMessage);
+        
+        Verbatim.LOGGER.debug("[Verbatim DM Command] DM sent from {} to {}: {}", sender.getName().getString(), target.getName().getString(), message);
+        return 1;
+    }
+
+    private static int replyToLastDm(ServerPlayer sender, String message) {
+        Optional<java.util.UUID> lastSenderOpt = ChatChannelManager.getLastIncomingDmSender(sender);
+        if (lastSenderOpt.isEmpty()) {
+            sender.sendSystemMessage(Component.literal("No recent DMs to reply to.").withStyle(ChatFormatting.YELLOW));
+            return 0;
+        }
+
+        ServerPlayer target = ChatChannelManager.getPlayerByUUID(lastSenderOpt.get());
+        if (target == null) {
+            sender.sendSystemMessage(Component.literal("Cannot reply: Target player is not online.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        return sendDirectMessage(sender, target, message);
     }
 } 

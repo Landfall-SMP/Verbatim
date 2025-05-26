@@ -14,10 +14,83 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 
 public class ChatChannelManager {
-    // Stores the single channel a player is currently TYPING IN / FOCUSED ON.
-    private static final Map<UUID, String> focusedChannels = new HashMap<>();
+    // New focus system that supports both channels and DMs
+    public static abstract class FocusTarget {
+        public abstract String getDisplayName();
+        public abstract boolean isValid(); // Check if target still exists/is online
+    }
+    
+    public static class ChannelFocus extends FocusTarget {
+        public final String channelName;
+        
+        public ChannelFocus(String channelName) {
+            this.channelName = channelName;
+        }
+        
+        @Override
+        public String getDisplayName() {
+            return getChannelConfigByName(channelName)
+                .map(config -> config.displayPrefix + " " + config.name)
+                .orElse(channelName);
+        }
+        
+        @Override
+        public boolean isValid() {
+            return getChannelConfigByName(channelName).isPresent();
+        }
+        
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof ChannelFocus && ((ChannelFocus) obj).channelName.equals(this.channelName);
+        }
+        
+        @Override
+        public int hashCode() {
+            return channelName.hashCode();
+        }
+    }
+    
+    public static class DmFocus extends FocusTarget {
+        public final UUID targetPlayerId;
+        
+        public DmFocus(UUID targetPlayerId) {
+            this.targetPlayerId = targetPlayerId;
+        }
+        
+        @Override
+        public String getDisplayName() {
+            ServerPlayer targetPlayer = getPlayerByUUID(targetPlayerId);
+            return targetPlayer != null ? "DM with " + targetPlayer.getName().getString() : "DM with offline player";
+        }
+        
+        @Override
+        public boolean isValid() {
+            return getPlayerByUUID(targetPlayerId) != null;
+        }
+        
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof DmFocus && ((DmFocus) obj).targetPlayerId.equals(this.targetPlayerId);
+        }
+        
+        @Override
+        public int hashCode() {
+            return targetPlayerId.hashCode();
+        }
+    }
+    
+    // Helper method to get player by UUID
+    public static ServerPlayer getPlayerByUUID(UUID playerId) {
+        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        return server != null ? server.getPlayerList().getPlayer(playerId) : null;
+    }
+
+    // Updated focus tracking - now stores FocusTarget instead of String
+    private static final Map<UUID, FocusTarget> playerFocus = new HashMap<>();
     // Stores ALL channels a player is currently LISTENING TO / JOINED.
     private static final Map<UUID, Set<String>> joinedChannels = new HashMap<>();
+    // DM state tracking
+    private static final Map<UUID, UUID> lastIncomingDmSender = new HashMap<>();
 
     // Helper class to store parsed channel configuration for easier access
     public static class ChannelConfig {
@@ -174,16 +247,17 @@ public class ChatChannelManager {
         }
 
         if (loadedFocusedChannel != null && getJoinedChannels(player).contains(loadedFocusedChannel)) {
-            focusedChannels.put(player.getUUID(), loadedFocusedChannel);
+            playerFocus.put(player.getUUID(), new ChannelFocus(loadedFocusedChannel));
         } else {
-             focusedChannels.remove(player.getUUID()); // Will be set by ensurePlayerIsInADefaultFocus
+             playerFocus.remove(player.getUUID()); // Will be set by ensurePlayerIsInADefaultFocus
         }
         savePlayerChannelState(player);
     }
 
     private static void ensurePlayerIsInADefaultFocus(ServerPlayer player) {
-        ChannelConfig currentFocus = getFocusedChannelConfig(player).orElse(null);
-        if (currentFocus == null || !isJoined(player, currentFocus.name)) {
+        FocusTarget currentFocus = playerFocus.get(player.getUUID());
+        if (currentFocus == null || !currentFocus.isValid() || 
+            (currentFocus instanceof ChannelFocus && !isJoined(player, ((ChannelFocus) currentFocus).channelName))) {
             ChannelConfig defaultChannel = getDefaultChannelConfig();
             if (defaultChannel != null) {
                 Verbatim.LOGGER.info("[ChatChannelManager] Player {} focus invalid or not joined. Focusing to default '{}'.", player.getName().getString(), defaultChannel.name);
@@ -197,9 +271,9 @@ public class ChatChannelManager {
     private static void savePlayerChannelState(ServerPlayer player) {
         Set<String> currentJoined = joinedChannels.getOrDefault(player.getUUID(), new HashSet<>());
         player.getPersistentData().putString("verbatim:joined_channels", String.join(",", currentJoined));
-        String currentFocused = focusedChannels.get(player.getUUID());
-        if (currentFocused != null) {
-            player.getPersistentData().putString("verbatim:focused_channel", currentFocused);
+        FocusTarget currentFocused = playerFocus.get(player.getUUID());
+        if (currentFocused instanceof ChannelFocus) {
+            player.getPersistentData().putString("verbatim:focused_channel", ((ChannelFocus) currentFocused).channelName);
         } else {
             player.getPersistentData().remove("verbatim:focused_channel");
         }
@@ -218,8 +292,11 @@ public class ChatChannelManager {
     }
 
     public static Optional<ChannelConfig> getFocusedChannelConfig(ServerPlayer player) {
-        return Optional.ofNullable(focusedChannels.get(player.getUUID()))
-                       .flatMap(ChatChannelManager::getChannelConfigByName);
+        FocusTarget focus = playerFocus.get(player.getUUID());
+        if (focus instanceof ChannelFocus) {
+            return getChannelConfigByName(((ChannelFocus) focus).channelName);
+        }
+        return Optional.empty();
     }
 
     public static boolean isJoined(ServerPlayer player, String channelName) {
@@ -269,8 +346,9 @@ public class ChatChannelManager {
     public static void autoLeaveChannel(ServerPlayer player, String channelName) {
         internalLeaveChannel(player, channelName);
         // If the channel they were auto-left from was their focus, reset focus
-        if (channelName.equals(focusedChannels.get(player.getUUID()))) {
-            focusedChannels.remove(player.getUUID());
+        FocusTarget currentFocus = playerFocus.get(player.getUUID());
+        if (currentFocus instanceof ChannelFocus && channelName.equals(((ChannelFocus) currentFocus).channelName)) {
+            playerFocus.remove(player.getUUID());
             ensurePlayerIsInADefaultFocus(player);
             player.sendSystemMessage(Component.literal("You were automatically removed from channel '")
                 .append(Component.literal(channelName).withStyle(ChatFormatting.YELLOW))
@@ -319,8 +397,9 @@ public class ChatChannelManager {
             .append(ChatFormattingUtils.parseColors(config.displayPrefix + " " + config.name)));
         
         // If they left their focused channel, reset focus to default
-        if (channelName.equals(focusedChannels.get(player.getUUID()))) {
-            focusedChannels.remove(player.getUUID());
+        FocusTarget currentFocus = playerFocus.get(player.getUUID());
+        if (currentFocus instanceof ChannelFocus && channelName.equals(((ChannelFocus) currentFocus).channelName)) {
+            playerFocus.remove(player.getUUID());
             ensurePlayerIsInADefaultFocus(player); // This will also message the player about new focus
         }
         savePlayerChannelState(player);
@@ -338,7 +417,7 @@ public class ChatChannelManager {
         // Otherwise, normal permission check applies.
         if (config.alwaysOn || Verbatim.permissionService.hasPermission(player, config.permission.orElse(null), 2)) {
             internalJoinChannel(player, channelName, config.alwaysOn); // Ensure joined (force if alwaysOn)
-            focusedChannels.put(player.getUUID(), channelName);
+            playerFocus.put(player.getUUID(), new ChannelFocus(channelName));
             savePlayerChannelState(player);
             player.sendSystemMessage(Component.literal("Focused channel: ")
                 .append(ChatFormattingUtils.parseColors(config.displayPrefix + " " + config.name)).withStyle(ChatFormatting.GREEN));
@@ -351,7 +430,72 @@ public class ChatChannelManager {
 
     public static void playerLoggedOut(ServerPlayer player) {
         savePlayerChannelState(player); // Ensure state is saved on logout
-        focusedChannels.remove(player.getUUID());
+        playerFocus.remove(player.getUUID());
         joinedChannels.remove(player.getUUID());
+        lastIncomingDmSender.remove(player.getUUID());
+    }
+
+    // New DM-related methods
+    public static void focusDm(ServerPlayer player, UUID targetPlayerId) {
+        ServerPlayer targetPlayer = getPlayerByUUID(targetPlayerId);
+        if (targetPlayer == null) {
+            player.sendSystemMessage(Component.literal("Cannot focus DM: Target player is not online.").withStyle(ChatFormatting.RED));
+            return;
+        }
+        
+        playerFocus.put(player.getUUID(), new DmFocus(targetPlayerId));
+        player.sendSystemMessage(Component.literal("Focused DM with: ")
+            .append(Component.literal(targetPlayer.getName().getString()).withStyle(ChatFormatting.YELLOW)));
+    }
+    
+    public static void focusDm(ServerPlayer player, String targetPlayerName) {
+        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) return;
+        
+        ServerPlayer targetPlayer = server.getPlayerList().getPlayerByName(targetPlayerName);
+        if (targetPlayer == null) {
+            player.sendSystemMessage(Component.literal("Cannot focus DM: Player '" + targetPlayerName + "' is not online.").withStyle(ChatFormatting.RED));
+            return;
+        }
+        
+        focusDm(player, targetPlayer.getUUID());
+    }
+    
+    public static Optional<FocusTarget> getFocus(ServerPlayer player) {
+        return Optional.ofNullable(playerFocus.get(player.getUUID()));
+    }
+    
+    public static void setLastIncomingDmSender(ServerPlayer recipient, UUID senderId) {
+        lastIncomingDmSender.put(recipient.getUUID(), senderId);
+    }
+    
+    public static Optional<UUID> getLastIncomingDmSender(ServerPlayer player) {
+        return Optional.ofNullable(lastIncomingDmSender.get(player.getUUID()));
+    }
+    
+    public static void handleDPrefix(ServerPlayer player) {
+        FocusTarget currentFocus = playerFocus.get(player.getUUID());
+        UUID lastSender = lastIncomingDmSender.get(player.getUUID());
+        
+        if (lastSender == null) {
+            player.sendSystemMessage(Component.literal("No recent DMs to reply to.").withStyle(ChatFormatting.YELLOW));
+            return;
+        }
+        
+        // If currently in DM mode with someone different than last sender, switch to last sender
+        if (currentFocus instanceof DmFocus) {
+            UUID currentDmTarget = ((DmFocus) currentFocus).targetPlayerId;
+            if (!currentDmTarget.equals(lastSender)) {
+                focusDm(player, lastSender);
+                return;
+            }
+        }
+        
+        // If not in DM mode or already DMing the last sender, focus on last sender
+        focusDm(player, lastSender);
+    }
+
+    private static boolean isValid(FocusTarget focusTarget) {
+        return focusTarget != null && focusTarget.isValid();
     }
 }

@@ -16,6 +16,13 @@ public class VerbatimConfig {
     public static final ForgeConfigSpec.ConfigValue<List<? extends UnmodifiableConfig>> CHANNELS;
     public static final ForgeConfigSpec.ConfigValue<String> DEFAULT_CHANNEL_NAME;
 
+    // Discord Integration Config
+    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_BOT_TOKEN;
+    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_CHANNEL_ID;
+    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_MESSAGE_PREFIX;
+    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_MESSAGE_SEPARATOR;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_BOT_ENABLED;
+
     static {
         BUILDER.push("Verbatim Mod Configuration");
 
@@ -32,7 +39,7 @@ public class VerbatimConfig {
             "  permission: String (optional) - Permission node required. Empty or omit for no permission.",
             "  range: Integer (optional) - Chat range in blocks for local channels. Use -1 or omit for global/non-ranged channels.",
             "  nameColor: String (optional) - Color for player names (e.g., \"&e\"). Defaults to channel's messageColor if omitted, or white if that's also omitted.",
-            "  separator: String (optional) - Separator between name and message (e.g., \" » \"). Defaults to \": \".",
+            "  separator: String (optional) - Separator between name and message (e.g., \" » \"). Defaults to \". \".",
             "  separatorColor: String (optional) - Color for the separator (e.g., \"&7\"). Defaults to channel's messageColor if omitted, or white.",
             "  messageColor: String (optional) - Color for the message content (e.g., \"&f\"). Defaults to white.",
             "  alwaysOn: Boolean (optional) - If true, players cannot '/channel leave' this channel. Defaults to false.",
@@ -147,6 +154,37 @@ public class VerbatimConfig {
         };
 
         CHANNELS = BUILDER.defineList("channels", defaultChannelsSupplier, channelEntryValidator);
+
+        BUILDER.pop();
+
+        BUILDER.push("Discord Integration");
+        BUILDER.comment(
+                "Settings for Discord bot integration. The bot will not start if the token or channel ID is empty."
+        );
+
+        DISCORD_BOT_ENABLED = BUILDER.comment(
+                "Enable or disable the Discord bot entirely."
+        ).define("discordBotEnabled", false);
+
+        DISCORD_BOT_TOKEN = BUILDER.comment(
+                "Your Discord Bot Token. Get this from the Discord Developer Portal.",
+                "The bot will NOT run if this is empty."
+        ).define("discordBotToken", "");
+
+        DISCORD_CHANNEL_ID = BUILDER.comment(
+                "The ID of the Discord Channel the bot should monitor and send messages to.",
+                "The bot will NOT run if this is empty."
+        ).define("discordChannelId", "");
+
+        DISCORD_MESSAGE_PREFIX = BUILDER.comment(
+                "Prefix for Discord messages sent in-game (e.g., \"&9[Discord]&r\"). Supports & color codes.",
+                "Leave empty for no prefix. Example with color: &9[Discord]&r"
+        ).define("discordMessagePrefix", "&9[Discord]&r");
+
+        DISCORD_MESSAGE_SEPARATOR = BUILDER.comment(
+                "Separator used between the author's name and message content for Discord messages sent in-game.",
+                "Supports & color codes. Example: &7 » "
+        ).define("discordMessageSeparator", "&7 » ");
 
         BUILDER.pop();
         SPEC = BUILDER.build();
