@@ -10,13 +10,18 @@ import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.MessageArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Style;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.players.PlayerList;
 import world.landfall.verbatim.ChatChannelManager;
 import world.landfall.verbatim.ChatFormattingUtils;
 import world.landfall.verbatim.Verbatim;
 import net.minecraft.network.chat.MutableComponent;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.Optional;
@@ -180,6 +185,91 @@ public class VerbatimCommands {
         
         // Also register alternative names to ensure we catch all variants
         dispatcher.register(Commands.literal("w").redirect(msgCommand.build())); // /w is another common alias for whisper/msg
+
+        // Override /list command
+        dispatcher.register(Commands.literal("list")
+            .executes(context -> executeCustomListCommand(context.getSource())));
+
+        // New /vlist command
+        LiteralArgumentBuilder<CommandSourceStack> verbatimListCommand =
+            Commands.literal("vlist")
+                .executes(context -> listOnlinePlayers(context.getSource()));
+        dispatcher.register(verbatimListCommand);
+    }
+
+    private static int executeCustomListCommand(CommandSourceStack source) {
+        MinecraftServer server = source.getServer();
+        PlayerList mcPlayerList = server.getPlayerList();
+        List<ServerPlayer> onlinePlayers = mcPlayerList.getPlayers();
+
+        if (onlinePlayers.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("There are no players currently online.").withStyle(ChatFormatting.YELLOW), true);
+            return 1;
+        }
+
+        MutableComponent message = Component.literal("Online Players (" + onlinePlayers.size() + "):").withStyle(ChatFormatting.GOLD);
+
+        boolean anyPlayerHasCustomDisplayName = false;
+        for (ServerPlayer player : onlinePlayers) {
+            String username = player.getName().getString();
+            String strippedDisplayName = ChatFormattingUtils.stripFormattingCodes(player.getDisplayName().getString());
+            if (!username.equals(strippedDisplayName)) {
+                anyPlayerHasCustomDisplayName = true;
+                break;
+            }
+        }
+
+        for (ServerPlayer player : onlinePlayers) {
+            String username = player.getName().getString();
+            String strippedDisplayName = ChatFormattingUtils.stripFormattingCodes(player.getDisplayName().getString());
+            boolean currentPlayerHasCustomDisplayName = !username.equals(strippedDisplayName);
+
+            message.append(Component.literal("\n - ")); // Newline and bullet point
+
+            ClickEvent clickEvent = new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/msg " + username + " ");
+
+            if (anyPlayerHasCustomDisplayName) {
+                if (currentPlayerHasCustomDisplayName) {
+                    message.append(Component.literal(strippedDisplayName)
+                        .withStyle(Style.EMPTY.withColor(ChatFormatting.YELLOW).withClickEvent(clickEvent)));
+                    message.append(Component.literal(" (" + username + ")").withStyle(ChatFormatting.GRAY)); // Username part not clickable if display name is primary
+                } else {
+                    message.append(Component.literal(username)
+                        .withStyle(Style.EMPTY.withColor(ChatFormatting.GRAY).withClickEvent(clickEvent)));
+                }
+            } else { // No one has a custom display name, show all as yellow usernames
+                message.append(Component.literal(username)
+                    .withStyle(Style.EMPTY.withColor(ChatFormatting.YELLOW).withClickEvent(clickEvent)));
+            }
+        }
+
+        source.sendSuccess(() -> message, true); // Ephemeral message
+        return onlinePlayers.size();
+    }
+
+    private static int listOnlinePlayers(CommandSourceStack source) {
+        MinecraftServer server = source.getServer();
+        PlayerList playerList = server.getPlayerList();
+        List<ServerPlayer> onlinePlayers = playerList.getPlayers();
+
+        if (onlinePlayers.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("There are no players currently online. (vlist)").withStyle(ChatFormatting.YELLOW), true); 
+            return 1;
+        }
+
+        MutableComponent message = Component.literal("Online Players (" + onlinePlayers.size() + ") [vlist]:\n").withStyle(ChatFormatting.GOLD);
+
+        for (ServerPlayer player : onlinePlayers) {
+            String username = player.getName().getString();
+            String strippedDisplayName = ChatFormattingUtils.stripFormattingCodes(player.getDisplayName().getString());
+            String formattedName = username;
+            if (!username.equals(strippedDisplayName)) {
+                formattedName = strippedDisplayName + " (" + username + ")";
+            }
+            message.append(Component.literal(" - " + formattedName + "\n").withStyle(ChatFormatting.GREEN));
+        }
+        source.sendSuccess(() -> message, true);
+        return onlinePlayers.size();
     }
 
     private static int listChannels(CommandSourceStack source) {

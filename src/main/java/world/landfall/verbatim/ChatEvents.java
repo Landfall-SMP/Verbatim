@@ -26,7 +26,7 @@ public class ChatEvents {
             ChatChannelManager.playerLoggedIn(player);
             
             if (DiscordBot.isEnabled()) {
-                DiscordBot.sendToDiscord("**" + ChatFormattingUtils.createDiscordPlayerName(player) + " has joined the server.**");
+                DiscordBot.sendPlayerConnectionStatusToDiscord(player, true);
             }
 
             ChatChannelManager.getFocus(player).ifPresent(focus -> {
@@ -63,7 +63,7 @@ public class ChatEvents {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             if (DiscordBot.isEnabled()) {
-                DiscordBot.sendToDiscord("**" + ChatFormattingUtils.createDiscordPlayerName(player) + " has left the server.**");
+                DiscordBot.sendPlayerConnectionStatusToDiscord(player, false);
             }
             ChatChannelManager.playerLoggedOut(player);
         }
@@ -79,14 +79,26 @@ public class ChatEvents {
         String messageContent = rawMessageText;
         Optional<ChatChannelManager.FocusTarget> targetFocusOpt = Optional.empty();
 
-        // Handle prefixes
-        if (rawMessageText.contains(":")) {
-            String potentialPrefix = rawMessageText.substring(0, rawMessageText.indexOf(":"));
+        // Handle prefixes (colon or semicolon)
+        int colonIndex = rawMessageText.indexOf(':');
+        int semicolonIndex = rawMessageText.indexOf(';');
+        int separatorIndex = -1;
+
+        if (colonIndex != -1 && semicolonIndex != -1) {
+            separatorIndex = Math.min(colonIndex, semicolonIndex);
+        } else if (colonIndex != -1) {
+            separatorIndex = colonIndex;
+        } else if (semicolonIndex != -1) {
+            separatorIndex = semicolonIndex;
+        }
+
+        if (separatorIndex != -1 && separatorIndex > 0) { // Ensure separator is not the first character
+            String potentialPrefix = rawMessageText.substring(0, separatorIndex);
             
             // DM reply
             if ("d".equals(potentialPrefix)) {
                 ChatChannelManager.handleDPrefix(sender);
-                messageContent = rawMessageText.substring(rawMessageText.indexOf(":") + 1).trim();
+                messageContent = rawMessageText.substring(separatorIndex + 1).trim();
                 
                 if (messageContent.isEmpty()) {
                     Verbatim.LOGGER.debug("[Verbatim ChatEvent] d: prefix used with no message. Focus changed only.");
@@ -97,29 +109,28 @@ public class ChatEvents {
                 if (currentFocus.isPresent() && currentFocus.get() instanceof ChatChannelManager.DmFocus) {
                     targetFocusOpt = currentFocus;
                 } else {
-                    // d: prefix failed (no recent DM or player offline), don't send message
                     Verbatim.LOGGER.debug("[Verbatim ChatEvent] d: prefix failed to establish DM focus. Message not sent.");
                     return;
                 }
             }
-            // Global channel
-            else if ("g".equals(potentialPrefix)) {
+            // Global channel shortcut (assuming 'g' is typically for global or default)
+            else if ("g".equals(potentialPrefix)) { 
                 ChatChannelManager.ChannelConfig defaultChannel = ChatChannelManager.getDefaultChannelConfig();
                 if (defaultChannel != null) {
-                    ChatChannelManager.focusChannel(sender, defaultChannel.name);
+                    ChatChannelManager.focusChannel(sender, defaultChannel.name); 
                     targetFocusOpt = Optional.of(new ChatChannelManager.ChannelFocus(defaultChannel.name));
-                    messageContent = rawMessageText.substring(rawMessageText.indexOf(":") + 1).trim();
+                    messageContent = rawMessageText.substring(separatorIndex + 1).trim();
                     
                     if (messageContent.isEmpty()) {
                         Verbatim.LOGGER.debug("[Verbatim ChatEvent] g: prefix used with no message. Focus changed only.");
-                        return; // Only focused, no message to send
+                        return; 
                     }
                 } else {
-                    sender.sendSystemMessage(Component.literal("No default channel configured.").withStyle(ChatFormatting.RED));
+                    sender.sendSystemMessage(Component.literal("No default channel configured for 'g:' prefix.").withStyle(ChatFormatting.RED));
                     return;
                 }
             }
-            // Channel shortcuts
+            // Other Channel shortcuts
             else {
                 Optional<ChatChannelManager.ChannelConfig> targetChannelByShortcut = ChatChannelManager.getChannelConfigByShortcut(potentialPrefix);
 
@@ -127,30 +138,28 @@ public class ChatEvents {
                     ChatChannelManager.ChannelConfig prospectiveChannel = targetChannelByShortcut.get();
                     Verbatim.LOGGER.debug("[Verbatim ChatEvent] Shortcut '{}' targets channel: {}. Checking permission...", potentialPrefix, prospectiveChannel.name);
                     
-                    // Use focusChannel which handles joining, permissions, and mature warnings
                     ChatChannelManager.focusChannel(sender, prospectiveChannel.name);
                     
-                    // Check if focus was successful by seeing if we're now joined to the channel
                     if (ChatChannelManager.isJoined(sender, prospectiveChannel.name)) {
                         targetFocusOpt = Optional.of(new ChatChannelManager.ChannelFocus(prospectiveChannel.name));
-                        messageContent = rawMessageText.substring(rawMessageText.indexOf(":") + 1).trim();
+                        messageContent = rawMessageText.substring(separatorIndex + 1).trim();
                         Verbatim.LOGGER.debug("[Verbatim ChatEvent] Shortcut permission GRANTED for '{}'. Player focused. Message content: \"{}\"", prospectiveChannel.name, messageContent);
                         
                         if (messageContent.isEmpty()) {
                             Verbatim.LOGGER.debug("[Verbatim ChatEvent] Message content empty after shortcut processing for '{}'. No message to send.", prospectiveChannel.name);
-                            return; // Only focused, no message to send further
+                            return; 
                         }
                     } else {
-                        return; // focusChannel will have sent the appropriate error message
+                        return; 
                     }
                 } else {
                     Verbatim.LOGGER.debug("[Verbatim ChatEvent] No channel found for shortcut: {}", potentialPrefix);
-                    // Treat as normal message, not a shortcut failure if no channel matches
+                    // If no prefix matches, it will fall through to use current focus or default behavior
                 }
             }
         }
 
-        // Get target focus if not set by prefix
+        // Get target focus if not set by prefix or if prefix was invalid
         if (targetFocusOpt.isEmpty()) {
             targetFocusOpt = ChatChannelManager.getFocus(sender);
             if (targetFocusOpt.isEmpty()) {
@@ -225,7 +234,7 @@ public class ChatEvents {
 
             // Discord Integration
             if (DiscordBot.isEnabled() && "global".equals(finalTargetChannel.name)) {
-                DiscordBot.sendToDiscord("**" + ChatFormattingUtils.createDiscordPlayerName(sender) + ":** " + messageContent);
+                DiscordBot.sendPlayerChatMessageToDiscord(sender, messageContent);
             }
 
             // Format message

@@ -5,6 +5,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.server.level.ServerPlayer;
 
 public class ChatFormattingUtils {
@@ -71,26 +72,43 @@ public class ChatFormattingUtils {
      */
     public static Component createPlayerNameComponent(ServerPlayer player, String colorPrefix, boolean isDM) {
         String username = player.getName().getString();
-        String displayName = player.getDisplayName().getString();
+        String displayName = player.getDisplayName().getString(); // Get raw display name
+        String strippedDisplayName = stripFormattingCodes(displayName); // Strip codes for comparison and potential use
+
+        ClickEvent clickEvent = new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/msg " + username + " ");
+        HoverEvent hoverEvent = null;
+
+        String nameToShow;
         
-        // For DMs, always use username without hover
         if (isDM) {
-            return parseColors(colorPrefix + username);
-        }
-        
-        // For channels, use display name with hover if different from username
-        if (!username.equals(displayName)) {
-            // Display name differs from username, show display name with hover tooltip
-            MutableComponent nameComponent = (MutableComponent) parseColors(colorPrefix + displayName);
-            nameComponent = nameComponent.withStyle(style -> 
-                style.withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, 
-                    Component.literal("Username: " + username).withStyle(ChatFormatting.GRAY)))
-            );
-            return nameComponent;
+            // For DMs, always show the username, apply color prefix.
+            nameToShow = username;
         } else {
-            // Display name same as username, just show the name normally
-            return parseColors(colorPrefix + username);
+            // For channels, if display name (stripped) is different from username, use it and set hover.
+            if (!username.equals(strippedDisplayName)) {
+                nameToShow = strippedDisplayName;
+                hoverEvent = new HoverEvent(HoverEvent.Action.SHOW_TEXT, 
+                                        Component.literal("Username: " + username).withStyle(ChatFormatting.GRAY));
+            } else {
+                // Otherwise, just use the username.
+                nameToShow = username;
+            }
         }
+
+        // Parse the name with its color prefix first
+        MutableComponent nameComponent = (MutableComponent) parseColors(colorPrefix + nameToShow);
+
+        // Apply ClickEvent and HoverEvent (if any) to the parsed name component
+        final HoverEvent finalHoverEvent = hoverEvent; // effectively final for lambda
+        nameComponent = nameComponent.withStyle(style -> {
+            Style updatedStyle = style.withClickEvent(clickEvent);
+            if (finalHoverEvent != null) {
+                updatedStyle = updatedStyle.withHoverEvent(finalHoverEvent);
+            }
+            return updatedStyle;
+        });
+
+        return nameComponent;
     }
 
     /**
@@ -112,5 +130,18 @@ public class ChatFormattingUtils {
         } else {
             return username;
         }
+    }
+
+    /**
+     * Strips Minecraft formatting codes (both & and §) from a string.
+     * @param text The text to strip codes from.
+     * @return The text with formatting codes removed.
+     */
+    public static String stripFormattingCodes(String text) {
+        if (text == null) {
+            return null;
+        }
+        // Regex to remove & followed by a hex char, or § followed by a hex char.
+        return text.replaceAll("(?i)[&§][0-9A-FK-OR]", "");
     }
 } 

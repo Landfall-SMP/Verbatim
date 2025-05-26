@@ -142,7 +142,7 @@ public class LocalChannelFormatter {
             applyPlusStyleFormatting = true;
             messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 1);
         } else if (originalMessageContent.endsWith("))")) {
-            effectiveRange = -1; // Global range for OOC
+            effectiveRange = 50; // Global range for local OOC
             localActionText = ""; // No verb for OOC
             applyPlusStyleFormatting = false;
             messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 2);

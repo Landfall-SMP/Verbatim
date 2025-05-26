@@ -22,6 +22,7 @@ public class VerbatimConfig {
     public static final ForgeConfigSpec.ConfigValue<String> DISCORD_MESSAGE_PREFIX;
     public static final ForgeConfigSpec.ConfigValue<String> DISCORD_MESSAGE_SEPARATOR;
     public static final ForgeConfigSpec.BooleanValue DISCORD_BOT_ENABLED;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_USE_EMBED_MODE;
 
     static {
         BUILDER.push("Verbatim Mod Configuration");
@@ -193,6 +194,11 @@ public class VerbatimConfig {
                 "Separator used between the author's name and message content for Discord messages sent in-game.",
                 "Supports & color codes. Example: &7 » "
         ).define("discordMessageSeparator", "&7 » ");
+
+        DISCORD_USE_EMBED_MODE = BUILDER.comment(
+                "Enable to send Minecraft chat to Discord as rich embeds instead of plain text.",
+                "Embeds will include the player's avatar and a color derived from their UUID."
+        ).define("discordUseEmbedMode", false);
 
         BUILDER.pop();
         SPEC = BUILDER.build();
