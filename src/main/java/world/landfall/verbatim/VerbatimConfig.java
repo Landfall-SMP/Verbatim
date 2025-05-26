@@ -15,6 +15,7 @@ public class VerbatimConfig {
 
     public static final ModConfigSpec.ConfigValue<List<? extends UnmodifiableConfig>> CHANNELS;
     public static final ModConfigSpec.ConfigValue<String> DEFAULT_CHANNEL_NAME;
+    public static final ModConfigSpec.ConfigValue<String> CHANNELS_INFO;
 
     // Discord Integration Config
     public static final ModConfigSpec.ConfigValue<String> DISCORD_BOT_TOKEN;
@@ -32,7 +33,7 @@ public class VerbatimConfig {
             "This name MUST correspond to one of the defined channels below."
         ).define("defaultChannelName", "global");
 
-        BUILDER.comment(
+        CHANNELS_INFO = BUILDER.comment(
             "Channel definitions. Each channel is an object with the following properties:",
             "  name: String - The internal name of the channel (e.g., \"global\", \"local\"). Unique.",
             "  displayPrefix: String - The prefix shown in chat (e.g., \"&a[G]\"). Supports & color codes.",
@@ -46,7 +47,7 @@ public class VerbatimConfig {
             "  alwaysOn: Boolean (optional) - If true, players cannot '/channel leave' this channel. Defaults to false.",
             "  specialChannelType: String (optional) - Special behavior type (e.g., \"local\" for roleplay features). Defaults to none.",
             "  mature: Boolean (optional) - If true, shows a mature content warning when joining. Defaults to false."
-        );
+        ).define("channelsInfo", "");
 
         Supplier<List<? extends UnmodifiableConfig>> defaultChannelsSupplier = () -> {
             List<CommentedConfig> defaults = new ArrayList<>();
@@ -161,7 +162,9 @@ public class VerbatimConfig {
             return true;
         };
 
-        CHANNELS = BUILDER.defineList("channels", defaultChannelsSupplier, channelEntryValidator);
+        CHANNELS = BUILDER.comment(
+            "Channel definitions - see documentation for all available properties"
+        ).defineList("channels", defaultChannelsSupplier, channelEntryValidator);
 
         BUILDER.pop();
 
