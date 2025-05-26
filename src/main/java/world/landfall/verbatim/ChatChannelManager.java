@@ -463,10 +463,6 @@ public class ChatChannelManager {
         focusDm(player, lastSender);
     }
 
-    private static boolean isValid(FocusTarget focusTarget) {
-        return focusTarget != null && focusTarget.isValid();
-    }
-
     public static List<ServerPlayer> getPlayersInChannel(MinecraftServer server, String channelName) {
         List<ServerPlayer> playersInChannel = new ArrayList<>();
         if (server == null || channelName == null || channelName.isEmpty()) {

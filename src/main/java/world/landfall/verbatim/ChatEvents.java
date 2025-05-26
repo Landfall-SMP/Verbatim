@@ -14,7 +14,6 @@ import world.landfall.verbatim.chat.ChatFocus;
 import world.landfall.verbatim.specialchannels.FormattedMessageDetails;
 import world.landfall.verbatim.specialchannels.LocalChannelFormatter;
 import world.landfall.verbatim.discord.DiscordBot;
-import world.landfall.verbatim.ChatFormattingUtils;
 
 import java.util.Optional;
 import java.util.Set;
@@ -276,6 +275,10 @@ public class ChatEvents {
                 }
 
                 MinecraftServer server = sender.getServer();
+                if (server == null) {
+                    Verbatim.LOGGER.error("[Verbatim ChatEvent] Server instance is null while processing message from {}", sender.getName().getString());
+                    return;
+                }
 
                 for (ServerPlayer recipient : server.getPlayerList().getPlayers()) {
                     if (ChatChannelManager.isJoined(recipient, finalTargetChannel.name)) {
