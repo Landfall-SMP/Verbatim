@@ -3,26 +3,26 @@ package world.landfall.verbatim;
 import com.electronwill.nightconfig.core.CommentedConfig;
 import com.electronwill.nightconfig.core.UnmodifiableConfig;
 import com.electronwill.nightconfig.toml.TomlFormat;
-import net.minecraftforge.common.ForgeConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.ArrayList;
 
 public class VerbatimConfig {
-    public static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
-    public static final ForgeConfigSpec SPEC;
+    public static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
+    public static final ModConfigSpec SPEC;
 
-    public static final ForgeConfigSpec.ConfigValue<List<? extends UnmodifiableConfig>> CHANNELS;
-    public static final ForgeConfigSpec.ConfigValue<String> DEFAULT_CHANNEL_NAME;
+    public static final ModConfigSpec.ConfigValue<List<? extends UnmodifiableConfig>> CHANNELS;
+    public static final ModConfigSpec.ConfigValue<String> DEFAULT_CHANNEL_NAME;
 
     // Discord Integration Config
-    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_BOT_TOKEN;
-    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_CHANNEL_ID;
-    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_MESSAGE_PREFIX;
-    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_MESSAGE_SEPARATOR;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_BOT_ENABLED;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_USE_EMBED_MODE;
+    public static final ModConfigSpec.ConfigValue<String> DISCORD_BOT_TOKEN;
+    public static final ModConfigSpec.ConfigValue<String> DISCORD_CHANNEL_ID;
+    public static final ModConfigSpec.ConfigValue<String> DISCORD_MESSAGE_PREFIX;
+    public static final ModConfigSpec.ConfigValue<String> DISCORD_MESSAGE_SEPARATOR;
+    public static final ModConfigSpec.BooleanValue DISCORD_BOT_ENABLED;
+    public static final ModConfigSpec.BooleanValue DISCORD_USE_EMBED_MODE;
 
     static {
         BUILDER.push("Verbatim Mod Configuration");
@@ -158,7 +158,6 @@ public class VerbatimConfig {
                 Verbatim.LOGGER.warn("[VerbatimConfigValidator] Channel '{}': 'mature' is not a Boolean.", entryName);
                 return false;
             }
-            // Verbatim.LOGGER.debug("[VerbatimConfigValidator] Channel '{}' passed validation.", entryName); // Remove or comment out debug log
             return true;
         };
 

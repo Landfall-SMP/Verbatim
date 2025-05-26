@@ -9,7 +9,7 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.server.ServerLifecycleHooks;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import world.landfall.verbatim.Verbatim;
 import world.landfall.verbatim.VerbatimConfig;
 import world.landfall.verbatim.ChatFormattingUtils;

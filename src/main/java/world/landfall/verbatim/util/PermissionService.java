@@ -1,13 +1,12 @@
 package world.landfall.verbatim.util;
 
-import net.luckperms.api.LuckPerms;
-import net.luckperms.api.LuckPermsProvider;
-import net.luckperms.api.model.user.User;
 import net.minecraft.server.level.ServerPlayer;
 import world.landfall.verbatim.Verbatim; // For LOGGER
+import java.lang.reflect.Method;
+import java.util.UUID;
 
 public class PermissionService {
-    private LuckPerms luckPermsApi;
+    private Object luckPermsApi;
     private Boolean luckPermsAvailable; // Use Boolean (nullable) to track if we've checked yet
 
     public PermissionService() {
@@ -23,13 +22,20 @@ public class PermissionService {
     private void ensureLuckPermsChecked() {
         if (this.luckPermsAvailable == null) { // Haven't checked yet
             try {
-                this.luckPermsApi = LuckPermsProvider.get();
+                // Use reflection to safely check for LuckPerms
+                Class<?> luckPermsProviderClass = Class.forName("net.luckperms.api.LuckPermsProvider");
+                Method getMethod = luckPermsProviderClass.getMethod("get");
+                this.luckPermsApi = getMethod.invoke(null);
                 this.luckPermsAvailable = true;
                 Verbatim.LOGGER.info("[Verbatim PermissionService] LuckPerms API found and loaded. Permissions will be handled by LuckPerms.");
-            } catch (IllegalStateException e) {
+            } catch (ClassNotFoundException e) {
                 this.luckPermsApi = null;
                 this.luckPermsAvailable = false;
-                Verbatim.LOGGER.warn("[Verbatim PermissionService] LuckPerms API not found. Permissions will try to use vanilla OP levels as fallback. This is not recommended.");
+                Verbatim.LOGGER.warn("[Verbatim PermissionService] LuckPerms classes not found. Permissions will use vanilla OP levels as fallback.");
+            } catch (Exception e) {
+                this.luckPermsApi = null;
+                this.luckPermsAvailable = false;
+                Verbatim.LOGGER.warn("[Verbatim PermissionService] LuckPerms API not available: {}. Permissions will use vanilla OP levels as fallback.", e.getMessage());
             }
         }
     }
@@ -61,49 +67,84 @@ public class PermissionService {
         ensureLuckPermsChecked();
 
         if (this.luckPermsAvailable && this.luckPermsApi != null) {
-            User user = this.luckPermsApi.getUserManager().getUser(player.getUUID());
-            if (user != null) {
-                boolean checkResult = user.getCachedData().getPermissionData().checkPermission(permissionNode).asBoolean();
-                Verbatim.LOGGER.debug("[Verbatim PermissionService] LuckPerms check for player '{}', node '{}': {} (UUID: {})", 
-                                   player.getName().getString(), permissionNode, checkResult, player.getUUID());
+            try {
+                // Use reflection to access LuckPerms API
+                // Get UserManager
+                Method getUserManagerMethod = this.luckPermsApi.getClass().getMethod("getUserManager");
+                Object userManager = getUserManagerMethod.invoke(this.luckPermsApi);
                 
-                // Additional debugging: Check if user has ANY permissions
-                if (!checkResult) {
-                    Verbatim.LOGGER.debug("[Verbatim PermissionService] Permission denied. User's effective permissions: {}", 
-                                       user.getCachedData().getPermissionData().getPermissionMap().keySet());
-                }
+                // Get User
+                Method getUserMethod = userManager.getClass().getMethod("getUser", UUID.class);
+                Object user = getUserMethod.invoke(userManager, player.getUUID());
                 
-                return checkResult;
-            } else {
-                Verbatim.LOGGER.warn("[Verbatim PermissionService] LuckPerms available, but user '{}' (UUID: {}) not found by LuckPerms. " +
-                                   "This might happen if the user just joined. Attempting to load user...",
-                                   player.getName().getString(), player.getUUID());
-                
-                // Try to load the user synchronously (this might block briefly)
-                try {
-                    User loadedUser = this.luckPermsApi.getUserManager().loadUser(player.getUUID()).get();
-                    if (loadedUser != null) {
-                        boolean checkResult = loadedUser.getCachedData().getPermissionData().checkPermission(permissionNode).asBoolean();
-                        Verbatim.LOGGER.info("[Verbatim PermissionService] After loading user '{}', permission check for node '{}': {}", 
-                                           player.getName().getString(), permissionNode, checkResult);
-                        return checkResult;
+                if (user != null) {
+                    // Get permission check result
+                    Method getCachedDataMethod = user.getClass().getMethod("getCachedData");
+                    Object cachedData = getCachedDataMethod.invoke(user);
+                    
+                    Method getPermissionDataMethod = cachedData.getClass().getMethod("getPermissionData");
+                    Object permissionData = getPermissionDataMethod.invoke(cachedData);
+                    
+                    Method checkPermissionMethod = permissionData.getClass().getMethod("checkPermission", String.class);
+                    Object permissionResult = checkPermissionMethod.invoke(permissionData, permissionNode);
+                    
+                    Method asBooleanMethod = permissionResult.getClass().getMethod("asBoolean");
+                    boolean checkResult = (Boolean) asBooleanMethod.invoke(permissionResult);
+                    
+                    Verbatim.LOGGER.debug("[Verbatim PermissionService] LuckPerms check for player '{}', node '{}': {} (UUID: {})", 
+                                       player.getName().getString(), permissionNode, checkResult, player.getUUID());
+                    
+                    return checkResult;
+                } else {
+                    Verbatim.LOGGER.warn("[Verbatim PermissionService] LuckPerms available, but user '{}' (UUID: {}) not found by LuckPerms. " +
+                                       "This might happen if the user just joined. Attempting to load user...",
+                                       player.getName().getString(), player.getUUID());
+                    
+                    // Try to load the user synchronously (this might block briefly)
+                    try {
+                        Method loadUserMethod = userManager.getClass().getMethod("loadUser", UUID.class);
+                        Object completableFuture = loadUserMethod.invoke(userManager, player.getUUID());
+                        Method getMethod = completableFuture.getClass().getMethod("get");
+                        Object loadedUser = getMethod.invoke(completableFuture);
+                        
+                        if (loadedUser != null) {
+                            // Get permission check result for loaded user
+                            Method getCachedDataMethod = loadedUser.getClass().getMethod("getCachedData");
+                            Object cachedData = getCachedDataMethod.invoke(loadedUser);
+                            
+                            Method getPermissionDataMethod = cachedData.getClass().getMethod("getPermissionData");
+                            Object permissionData = getPermissionDataMethod.invoke(cachedData);
+                            
+                            Method checkPermissionMethod = permissionData.getClass().getMethod("checkPermission", String.class);
+                            Object permissionResult = checkPermissionMethod.invoke(permissionData, permissionNode);
+                            
+                            Method asBooleanMethod = permissionResult.getClass().getMethod("asBoolean");
+                            boolean checkResult = (Boolean) asBooleanMethod.invoke(permissionResult);
+                            
+                            Verbatim.LOGGER.info("[Verbatim PermissionService] After loading user '{}', permission check for node '{}': {}", 
+                                               player.getName().getString(), permissionNode, checkResult);
+                            return checkResult;
+                        }
+                    } catch (Exception e) {
+                        Verbatim.LOGGER.error("[Verbatim PermissionService] Failed to load user '{}' from LuckPerms: {}", 
+                                            player.getName().getString(), e.getMessage());
                     }
-                } catch (Exception e) {
-                    Verbatim.LOGGER.error("[Verbatim PermissionService] Failed to load user '{}' from LuckPerms: {}", 
-                                        player.getName().getString(), e.getMessage());
+                    
+                    // If we still can't load the user, deny permission
+                    Verbatim.LOGGER.warn("[Verbatim PermissionService] Could not load user '{}' from LuckPerms. Denying permission '{}'.", 
+                                       player.getName().getString(), permissionNode);
+                    return false; 
                 }
-                
-                // If we still can't load the user, deny permission
-                Verbatim.LOGGER.warn("[Verbatim PermissionService] Could not load user '{}' from LuckPerms. Denying permission '{}'.", 
-                                   player.getName().getString(), permissionNode);
-                return false; 
+            } catch (Exception e) {
+                Verbatim.LOGGER.error("[Verbatim PermissionService] Error accessing LuckPerms API via reflection: {}", e.getMessage());
+                // Fall through to vanilla OP check
             }
-        } else {
-            // LuckPerms is not available, fallback to vanilla OP check.
-            boolean opCheckResult = player.hasPermissions(opLevelIfLuckPermsAbsent);
-            Verbatim.LOGGER.info("[Verbatim PermissionService] LuckPerms not available. Vanilla OP check for player '{}', level {}: {} (for permission '{}')", 
-                                player.getName().getString(), opLevelIfLuckPermsAbsent, opCheckResult, permissionNode);
-            return opCheckResult;
         }
+        
+        // LuckPerms is not available or failed, fallback to vanilla OP check.
+        boolean opCheckResult = player.hasPermissions(opLevelIfLuckPermsAbsent);
+        Verbatim.LOGGER.info("[Verbatim PermissionService] LuckPerms not available. Vanilla OP check for player '{}', level {}: {} (for permission '{}')", 
+                            player.getName().getString(), opLevelIfLuckPermsAbsent, opCheckResult, permissionNode);
+        return opCheckResult;
     }
 } 

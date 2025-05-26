@@ -224,7 +224,13 @@ public class ChatChannelManager {
         player.getPersistentData().putString("verbatim:joined_channels", String.join(",", currentJoined));
         FocusTarget currentFocused = playerFocus.get(player.getUUID());
         if (currentFocused instanceof ChatFocus) {
-            player.getPersistentData().putString("verbatim:focused_channel", ((ChatFocus) currentFocused).getChannelName());
+            ChatFocus chatFocus = (ChatFocus) currentFocused;
+            if (chatFocus.getType() == ChatFocus.FocusType.CHANNEL) {
+                player.getPersistentData().putString("verbatim:focused_channel", chatFocus.getChannelName());
+            } else {
+                // For DM focus, remove the focused_channel key since it's not a channel
+                player.getPersistentData().remove("verbatim:focused_channel");
+            }
         } else {
             player.getPersistentData().remove("verbatim:focused_channel");
         }
@@ -417,7 +423,7 @@ public class ChatChannelManager {
     }
     
     public static void focusDm(ServerPlayer player, String targetPlayerName) {
-        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        net.minecraft.server.MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
         
         ServerPlayer targetPlayer = server.getPlayerList().getPlayerByName(targetPlayerName);
@@ -528,7 +534,7 @@ public class ChatChannelManager {
     }
 
     public static ServerPlayer getPlayerByUUID(UUID playerId) {
-        MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         return server != null ? server.getPlayerList().getPlayer(playerId) : null;
     }
 }

@@ -1,18 +1,15 @@
 package world.landfall.verbatim;
 
 import com.mojang.logging.LogUtils;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.RegisterCommandsEvent;
-import net.minecraftforge.event.ServerChatEvent;
-import net.minecraftforge.event.server.ServerStartingEvent;
-import net.minecraftforge.event.server.ServerStoppingEvent;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModLoadingContext;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.config.ModConfig;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import world.landfall.verbatim.command.VerbatimCommands;
 import world.landfall.verbatim.discord.DiscordBot;
@@ -27,18 +24,15 @@ public class Verbatim {
     public static final Logger LOGGER = LogUtils.getLogger();
     public static PermissionService permissionService;
 
-    @SuppressWarnings("removal")
-    public Verbatim() {
+    public Verbatim(IEventBus modEventBus, ModContainer modContainer) {
         Configurator.setLevel("world.landfall.verbatim", Level.DEBUG);
         LOGGER.info("[Verbatim] Debug logging enabled");
 
-        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         modEventBus.addListener(this::commonSetup);
-        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, VerbatimConfig.SPEC);
+        modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.SERVER, VerbatimConfig.SPEC);
 
-        MinecraftForge.EVENT_BUS.register(this);
-        MinecraftForge.EVENT_BUS.addListener(this::onRegisterCommands);
-        MinecraftForge.EVENT_BUS.addListener(this::onServerStopping);
+        NeoForge.EVENT_BUS.register(this);
+        NeoForge.EVENT_BUS.register(ChatEvents.class);
         
         permissionService = new PermissionService();
     }
@@ -47,6 +41,7 @@ public class Verbatim {
         LOGGER.info("[Verbatim] Common setup complete.");
     }
 
+    @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         Verbatim.LOGGER.info("Registering Verbatim commands");
         VerbatimCommands.register(event.getDispatcher());
