@@ -226,7 +226,12 @@ public class ChatChannelManager {
         if (currentFocused instanceof ChatFocus) {
             ChatFocus chatFocus = (ChatFocus) currentFocused;
             if (chatFocus.getType() == ChatFocus.FocusType.CHANNEL) {
-                player.getPersistentData().putString("verbatim:focused_channel", chatFocus.getChannelName());
+                String channelName = chatFocus.getChannelName();
+                if (channelName != null) {
+                    player.getPersistentData().putString("verbatim:focused_channel", channelName);
+                } else {
+                    player.getPersistentData().remove("verbatim:focused_channel");
+                }
             } else {
                 // For DM focus, remove the focused_channel key since it's not a channel
                 player.getPersistentData().remove("verbatim:focused_channel");

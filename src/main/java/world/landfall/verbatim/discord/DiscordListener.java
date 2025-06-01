@@ -5,15 +5,22 @@ import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.emoji.Emoji;
+import net.dv8tion.jda.api.entities.emoji.CustomEmoji;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.server.MinecraftServer;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.players.PlayerList;
+import net.minecraft.ChatFormatting;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import world.landfall.verbatim.Verbatim;
+import world.landfall.verbatim.VerbatimConfig;
 import world.landfall.verbatim.ChatFormattingUtils;
-import net.minecraft.ChatFormatting;
 
 import javax.annotation.Nonnull;
 import java.util.List;
@@ -35,8 +42,20 @@ public class DiscordListener extends ListenerAdapter {
             return;
         }
 
-        String originalMessageContent = event.getMessage().getContentDisplay();
-        if (originalMessageContent.trim().isEmpty()) {
+        // Get content that properly formats emojis
+        String originalMessageContent = event.getMessage().getContentRaw()
+            .replace("[", "\\[")
+            .replace("]", "\\]");
+        
+        // Handle custom emojis - replace with their names
+        String processedContent = originalMessageContent;
+        for (CustomEmoji emoji : event.getMessage().getMentions().getCustomEmojis()) {
+            String emojiMention = emoji.getAsMention();
+            String emojiName = ":" + emoji.getName() + ":";
+            processedContent = processedContent.replace(emojiMention, emojiName);
+        }
+        
+        if (processedContent.trim().isEmpty() && event.getMessage().getAttachments().isEmpty()) {
             return;
         }
 
@@ -67,29 +86,62 @@ public class DiscordListener extends ListenerAdapter {
             currentLength += ChatFormattingUtils.stripFormattingCodes(prefixComponent.getString()).length();
         }
         
-        Component authorComponent = Component.literal(authorName);
-        finalMessage.append(authorComponent);
-        currentLength += authorName.length(); 
+        finalMessage.append(Component.literal(authorName));
+        currentLength += authorName.length();
         
-        Component separatorComponent = ChatFormattingUtils.parseColors(separatorStr);
-        finalMessage.append(separatorComponent);
-        currentLength += ChatFormattingUtils.stripFormattingCodes(separatorComponent.getString()).length();
+        finalMessage.append(ChatFormattingUtils.parseColors(separatorStr));
+        currentLength += ChatFormattingUtils.stripFormattingCodes(separatorStr).length();
         
-        int maxContentLength = MAX_LENGTH - currentLength - TRUNCATION_MARKER_LEN;
-        String messageContentToAppend = originalMessageContent;
-
-        if (originalMessageContent.length() > maxContentLength) {
-            if (maxContentLength > 0) {
-                messageContentToAppend = originalMessageContent.substring(0, maxContentLength);
-                finalMessage.append(Component.literal(messageContentToAppend));
+        // Calculate remaining length for content
+        int remainingLength = MAX_LENGTH - currentLength - TRUNCATION_MARKER_LEN;
+        
+        // Handle message content first
+        String contentStr = processedContent.trim();
+        if (!contentStr.isEmpty()) {
+            if (contentStr.length() > remainingLength) {
+                contentStr = contentStr.substring(0, remainingLength);
+                finalMessage.append(Component.literal(contentStr));
                 finalMessage.append(Component.literal(TRUNCATION_MARKER).withStyle(ChatFormatting.DARK_GRAY));
+                remainingLength = 0;
             } else {
-                if (MAX_LENGTH - currentLength >= TRUNCATION_MARKER_LEN) {
-                    finalMessage.append(Component.literal(TRUNCATION_MARKER).withStyle(ChatFormatting.DARK_GRAY));
+                finalMessage.append(Component.literal(contentStr));
+                remainingLength -= contentStr.length();
+                if (!event.getMessage().getAttachments().isEmpty() && remainingLength > 1) {
+                    finalMessage.append(Component.literal(" "));
+                    remainingLength--;
                 }
             }
-        } else {
-            finalMessage.append(Component.literal(originalMessageContent));
+        }
+        
+        // Handle attachments if we have room
+        if (remainingLength > 0) {
+            List<Message.Attachment> attachments = event.getMessage().getAttachments();
+            for (Message.Attachment attachment : attachments) {
+                String fileName = attachment.getFileName();
+                String proxyUrl = attachment.getProxyUrl();
+                
+                // Check if we have room for this attachment (+2 for brackets)
+                if (fileName.length() + 2 > remainingLength) {
+                    finalMessage.append(Component.literal(TRUNCATION_MARKER).withStyle(ChatFormatting.DARK_GRAY));
+                    break;
+                }
+                
+                MutableComponent attachmentComponent = Component.literal("[" + fileName + "]")
+                    .withStyle(style -> style
+                        .withColor(ChatFormatting.DARK_GRAY)
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, proxyUrl))
+                        .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, 
+                            Component.literal("Click to open " + fileName))));
+                
+                finalMessage.append(attachmentComponent);
+                remainingLength -= (fileName.length() + 2);
+                
+                // Add space if we have more attachments and room
+                if (attachments.indexOf(attachment) < attachments.size() - 1 && remainingLength > 1) {
+                    finalMessage.append(Component.literal(" "));
+                    remainingLength--;
+                }
+            }
         }
 
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();

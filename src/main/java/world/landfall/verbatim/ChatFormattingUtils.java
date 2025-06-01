@@ -10,6 +10,10 @@ import net.minecraft.server.level.ServerPlayer;
 
 public class ChatFormattingUtils {
 
+    // Permission constants for chat color and formatting
+    public static final String PERM_CHAT_COLOR = "verbatim.chatcolor";
+    public static final String PERM_CHAT_FORMAT = "verbatim.chatformat";
+
     public static Component parseColors(String text) {
         if (text == null || text.isEmpty()) {
             return Component.empty(); // Prefer Component.empty() over Component.literal("")
@@ -143,5 +147,133 @@ public class ChatFormattingUtils {
         }
         // Regex to remove & followed by a hex char, or § followed by a hex char.
         return text.replaceAll("(?i)[&§][0-9A-FK-OR]", "");
+    }
+
+    /**
+     * Parses color and formatting codes while checking the sender's permissions. Unlike
+     * {@link #parseColors(String)} this method will silently ignore color/format codes that
+     * the player does not have permission to use.
+     *
+     * This should mainly be used when formatting entire messages where the sender should have
+     * full control over colors (for example when relaying to Discord). For normal in-game chat,
+     * prefer {@link #parsePlayerInputWithPermissions(String, String, ServerPlayer)} which keeps
+     * the channel base color intact.
+     */
+    public static Component parseColorsWithPermissions(String text, ServerPlayer player) {
+        if (text == null || text.isEmpty()) {
+            return Component.empty();
+        }
+
+        boolean hasColorPerm  = Verbatim.permissionService.hasPermission(player, PERM_CHAT_COLOR, 2);
+        boolean hasFormatPerm = Verbatim.permissionService.hasPermission(player, PERM_CHAT_FORMAT, 2);
+
+        MutableComponent main = Component.literal("");
+        String[] parts = text.split("(?i)(?=&[0-9a-fk-or])");
+        Style current = Style.EMPTY;
+
+        for (String part : parts) {
+            if (part.isEmpty()) continue;
+
+            if (part.startsWith("&") && part.length() >= 2) {
+                char code = part.charAt(1);
+                ChatFormatting fmt = ChatFormatting.getByCode(code);
+                String content = part.substring(2);
+
+                if (fmt != null) {
+                    boolean allow = false;
+                    if (fmt.isColor()) {
+                        allow = hasColorPerm;
+                    } else if (fmt == ChatFormatting.RESET) {
+                        allow = hasColorPerm || hasFormatPerm;
+                    } else { // bold, italic, underline etc.
+                        allow = hasFormatPerm;
+                    }
+
+                    if (allow) {
+                        if (fmt.isColor()) {
+                            current = Style.EMPTY.withColor(fmt);
+                        } else if (fmt == ChatFormatting.RESET) {
+                            current = Style.EMPTY;
+                        } else {
+                            current = applyStyle(current, fmt);
+                        }
+                    }
+                }
+
+                if (!content.isEmpty()) {
+                    main.append(Component.literal(content).setStyle(current));
+                }
+            } else {
+                main.append(Component.literal(part).setStyle(current));
+            }
+        }
+        return main;
+    }
+
+    /**
+     * Processes a player's chat input, applying permission checks to any color / format codes
+     * they have used, while preserving the channel's base formatting (color).
+     *
+     * @param channelBaseColor The base color prefix of the channel, e.g. "&7" for gray.
+     * @param playerInput      The raw message text entered by the player.
+     * @param player           The player whose permissions should be checked.
+     * @return Component with safe styles applied.
+     */
+    public static Component parsePlayerInputWithPermissions(String channelBaseColor,
+                                                            String playerInput,
+                                                            ServerPlayer player) {
+        if (playerInput == null || playerInput.isEmpty()) {
+            return Component.empty();
+        }
+
+        // First apply the base channel color (always allowed)
+        Component baseColorComponent = parseColors(channelBaseColor);
+        Style baseStyle = baseColorComponent.getStyle();
+        MutableComponent result = Component.empty();
+
+        boolean hasColorPerm  = Verbatim.permissionService.hasPermission(player, PERM_CHAT_COLOR, 2);
+        boolean hasFormatPerm = Verbatim.permissionService.hasPermission(player, PERM_CHAT_FORMAT, 2);
+
+        String[] parts = playerInput.split("(?i)(?=&[0-9a-fk-or])");
+        Style current = baseStyle;
+
+        for (String part : parts) {
+            if (part.isEmpty()) continue;
+
+            if (part.startsWith("&") && part.length() >= 2) {
+                char code = part.charAt(1);
+                ChatFormatting fmt = ChatFormatting.getByCode(code);
+                String content = part.substring(2);
+
+                if (fmt != null) {
+                    boolean allow = false;
+                    if (fmt.isColor()) {
+                        allow = hasColorPerm;
+                    } else if (fmt == ChatFormatting.RESET) {
+                        allow = hasColorPerm || hasFormatPerm;
+                    } else {
+                        allow = hasFormatPerm;
+                    }
+
+                    if (allow) {
+                        if (fmt.isColor()) {
+                            current = Style.EMPTY.withColor(fmt);
+                        } else if (fmt == ChatFormatting.RESET) {
+                            current = baseStyle; // reset to base channel style
+                        } else {
+                            current = applyStyle(current, fmt);
+                        }
+                    }
+                }
+
+                if (!content.isEmpty()) {
+                    result.append(Component.literal(content).setStyle(current));
+                }
+            } else {
+                result.append(Component.literal(part).setStyle(current));
+            }
+        }
+
+        return result;
     }
 } 

@@ -408,13 +408,13 @@ public class VerbatimCommands {
             .withStyle(ChatFormatting.LIGHT_PURPLE)
             .append(Component.literal(target.getName().getString()).withStyle(ChatFormatting.YELLOW))
             .append(Component.literal("]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-            .append(Component.literal(message).withStyle(ChatFormatting.WHITE));
+            .append(ChatFormattingUtils.parsePlayerInputWithPermissions("&f", message, sender));
             
         MutableComponent recipientMessage = Component.literal("[")
             .withStyle(ChatFormatting.LIGHT_PURPLE)
             .append(Component.literal(sender.getName().getString()).withStyle(ChatFormatting.YELLOW))
             .append(Component.literal(" -> You]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-            .append(Component.literal(message).withStyle(ChatFormatting.WHITE));
+            .append(ChatFormattingUtils.parsePlayerInputWithPermissions("&f", message, sender));
         
         sender.sendSystemMessage(senderMessage);
         target.sendSystemMessage(recipientMessage);

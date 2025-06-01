@@ -203,13 +203,13 @@ public class ChatEvents {
                     .withStyle(ChatFormatting.LIGHT_PURPLE)
                     .append(Component.literal(targetPlayer.getName().getString()).withStyle(ChatFormatting.YELLOW))
                     .append(Component.literal("]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-                    .append(Component.literal(messageContent).withStyle(ChatFormatting.WHITE));
+                    .append(ChatFormattingUtils.parsePlayerInputWithPermissions("&f", messageContent, sender));
                     
                 MutableComponent recipientMessage = Component.literal("[")
                     .withStyle(ChatFormatting.LIGHT_PURPLE)
                     .append(Component.literal(sender.getName().getString()).withStyle(ChatFormatting.YELLOW))
                     .append(Component.literal(" -> You]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-                    .append(Component.literal(messageContent).withStyle(ChatFormatting.WHITE));
+                    .append(ChatFormattingUtils.parsePlayerInputWithPermissions("&f", messageContent, sender));
                 
                 sender.sendSystemMessage(senderMessage);
                 targetPlayer.sendSystemMessage(recipientMessage);
@@ -257,7 +257,7 @@ public class ChatEvents {
                     Component playerNameComponent = ChatFormattingUtils.createPlayerNameComponent(sender, finalTargetChannel.nameColor, false);
                     finalMessage.append(playerNameComponent);
                     finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.separatorColor + finalTargetChannel.separator));
-                    finalMessage.append(ChatFormattingUtils.parseColors(finalTargetChannel.messageColor + messageContent));
+                    finalMessage.append(ChatFormattingUtils.parsePlayerInputWithPermissions(finalTargetChannel.messageColor, messageContent, sender));
                 }
 
                 MinecraftServer server = sender.getServer();

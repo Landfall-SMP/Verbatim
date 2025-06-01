@@ -16,7 +16,7 @@ import java.util.Random;
  */
 public class LocalChannelFormatter {
     private static final Random RANDOM = new Random();
-    public static final double FADE_MULTIPLIER = 2.0; // How much further beyond range until fully obscured
+    private static final int MAX_FADE_DISTANCE = 15; // Reduced maximum additional distance for fade
     private static final String OBSCURE_CHARS = "."; // Using single dot for better char-by-char replacement
 
     /**
@@ -39,9 +39,19 @@ public class LocalChannelFormatter {
             return originalMessage.copy(); // Within clear range
         }
 
-        // Calculate how obscured the message should be (0.0 to 1.0)
-        double maxRangeObscureEnds = effectiveRange * FADE_MULTIPLIER;
-        double obscurePercentage = (distance - effectiveRange) / (maxRangeObscureEnds - effectiveRange);
+        // Calculate fade distance based on effective range with a reasonable cap
+        // For whispers/mutters: use smaller multipliers for tighter fade
+        // For normal talking/shouting: use even smaller multipliers
+        double fadeDistance;
+        if (effectiveRange <= 15) {
+            // For whispers and mutters, use 1.5x the range instead of 2x
+            fadeDistance = effectiveRange * 1.5;
+        } else {
+            // For talking and shouting, use smaller multiplier with lower cap
+            fadeDistance = Math.min(MAX_FADE_DISTANCE, effectiveRange * 0.3);
+        }
+        
+        double obscurePercentage = (distance - effectiveRange) / fadeDistance;
         obscurePercentage = Math.min(1.0, Math.max(0.0, obscurePercentage));
 
         List<Component> originalSiblings = originalMessage.getSiblings();
@@ -123,28 +133,34 @@ public class LocalChannelFormatter {
         if (originalMessageContent.endsWith("!!")) {
             effectiveRange = 100;
             localActionText = "shouts:";
-            messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 2);
+            // Keep the !! in the message since it's natural punctuation
+            messageAfterSuffixRemoval = originalMessageContent;
         } else if (originalMessageContent.endsWith("!")) {
             effectiveRange = 75;
             localActionText = "exclaims:";
-            messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 1);
+            // Keep the ! in the message since it's natural punctuation
+            messageAfterSuffixRemoval = originalMessageContent;
         } else if (originalMessageContent.endsWith("*")) {
             effectiveRange = 10;
             localActionText = "whispers:";
+            // Remove the * since it's a formatting indicator, not natural punctuation
             messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 1);
         } else if (originalMessageContent.endsWith("$")) {
             effectiveRange = 3;
             localActionText = "mutters:";
+            // Remove the $ since it's a formatting indicator, not natural punctuation
             messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 1);
         } else if (originalMessageContent.endsWith("+")) {
             effectiveRange = 50;
             localActionText = ""; // No verb, direct action text formatting
             applyPlusStyleFormatting = true;
+            // Remove the + since it's a formatting indicator, not natural punctuation
             messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 1);
         } else if (originalMessageContent.endsWith("))")) {
-            effectiveRange = 50; // Global range for local OOC
+            effectiveRange = 50;
             localActionText = ""; // No verb for OOC
             applyPlusStyleFormatting = false;
+            // Remove the )) since it's a formatting indicator, not natural punctuation
             messageAfterSuffixRemoval = originalMessageContent.substring(0, originalMessageContent.length() - 2);
             
             // Create OOC format
@@ -156,7 +172,8 @@ public class LocalChannelFormatter {
             String displayName = sender.getDisplayName().getString();
             
             finalMessage.append(Component.literal(playerName + " (" + displayName + "): ").withStyle(ChatFormatting.DARK_GRAY));
-            finalMessage.append(Component.literal(messageAfterSuffixRemoval.trim()).withStyle(ChatFormatting.DARK_GRAY));
+            // Special channels should not use permission-based parsing - use basic parsing
+            finalMessage.append(ChatFormattingUtils.parseColors("&8" + messageAfterSuffixRemoval.trim()));
             
             return Optional.of(new FormattedMessageDetails(finalMessage, effectiveRange, false, "&8")); // Use dark gray for any obscuring
         }
