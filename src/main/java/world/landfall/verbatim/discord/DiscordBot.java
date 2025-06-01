@@ -28,6 +28,7 @@ public class DiscordBot {
 
     static {
         SPECIAL_UUID_COLORS.put(UUID.fromString("7755ac32-2fba-4ef6-a85b-93c354267a91"), new Color(155, 89, 182)); // cant blame a gal for liking purple ;)
+        SPECIAL_UUID_COLORS.put(UUID.fromString("886f738d-8d9a-4ba9-9148-af80e82dd744"), new Color(130, 35, 109)); // ty mallow for helping with 830!!
     }
 
     private static JDA jdaInstance;

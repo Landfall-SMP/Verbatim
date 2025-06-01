@@ -28,8 +28,18 @@ public class FormattedMessageDetails {
         double distance = Math.sqrt(distanceSquared);
         if (distance <= effectiveRange) return formattedMessage.copy(); // Within clear range
         
+        // Calculate fade distance using the same logic as LocalChannelFormatter
+        double fadeDistance;
+        if (effectiveRange <= 15) {
+            // For whispers (10) and mutters (3), double the range
+            fadeDistance = effectiveRange * 2.0;
+        } else {
+            // For talking (50) and shouting (100), use a smaller multiplier with a cap
+            fadeDistance = Math.min(30, effectiveRange * 0.6); // MAX_FADE_DISTANCE = 30
+        }
+        
         // If outside clear range, check if it should be obscured or not shown at all
-        if (distance <= effectiveRange * LocalChannelFormatter.FADE_MULTIPLIER) {
+        if (distance <= effectiveRange + fadeDistance) {
             // This will internally check isRoleplayMessage and not obscure if true
             return LocalChannelFormatter.createDistanceObscuredMessage(
                 formattedMessage, 

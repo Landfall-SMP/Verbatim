@@ -10,6 +10,144 @@ import net.minecraft.server.level.ServerPlayer;
 
 public class ChatFormattingUtils {
 
+    // Permission constants for chat color and formatting
+    public static final String PERM_CHAT_COLOR = "verbatim.chatcolor";
+    public static final String PERM_CHAT_FORMAT = "verbatim.chatformat";
+
+    /**
+     * Parses color codes with permission checks. This should be used for complete message formatting
+     * where the entire text (including channel colors) should be subject to permission checks.
+     * For most cases, use parsePlayerInputWithPermissions instead.
+     */
+    public static Component parseColorsWithPermissions(String text, ServerPlayer player) {
+        if (text == null || text.isEmpty()) {
+            return Component.empty();
+        }
+
+        boolean hasColorPerm = Verbatim.permissionService.hasPermission(player, PERM_CHAT_COLOR, 2);
+        boolean hasFormatPerm = Verbatim.permissionService.hasPermission(player, PERM_CHAT_FORMAT, 2);
+
+        MutableComponent mainComponent = Component.literal("");
+        String[] parts = text.split("(?i)(?=&[0-9a-fk-or])");
+        Style currentStyle = Style.EMPTY;
+
+        for (String part : parts) {
+            if (part.isEmpty()) continue;
+
+            if (part.startsWith("&") && part.length() >= 2) {
+                char code = part.charAt(1);
+                ChatFormatting formatting = ChatFormatting.getByCode(code);
+                String textContent = part.substring(2);
+
+                boolean allowCode = false;
+                if (formatting != null) {
+                    if (formatting.isColor()) {
+                        // Color codes require verbatim.chatcolor permission
+                        allowCode = hasColorPerm;
+                    } else if (formatting == ChatFormatting.RESET) {
+                        // Reset is allowed if player has either permission
+                        allowCode = hasColorPerm || hasFormatPerm;
+                    } else {
+                        // Formatting codes (bold, italic, etc.) require verbatim.chatformat permission
+                        allowCode = hasFormatPerm;
+                    }
+
+                    if (allowCode) {
+                        if (formatting.isColor()) {
+                            currentStyle = Style.EMPTY.withColor(formatting);
+                        } else if (formatting == ChatFormatting.RESET) {
+                            currentStyle = Style.EMPTY;
+                        } else {
+                            currentStyle = applyStyle(currentStyle, formatting);
+                        }
+                    }
+                    // If code not allowed, we just ignore it and continue with current style
+                }
+                
+                if (!textContent.isEmpty()) {
+                    mainComponent.append(Component.literal(textContent).setStyle(currentStyle));
+                }
+            } else {
+                // No color code at the beginning of this part, append with current style
+                mainComponent.append(Component.literal(part).setStyle(currentStyle));
+            }
+        }
+        return mainComponent;
+    }
+
+    /**
+     * Parses player input with permission checks while preserving channel base formatting.
+     * This applies the channel's base color first, then processes player input with permission checks.
+     * 
+     * @param channelBaseColor The channel's default color (e.g., "&7" for light gray)
+     * @param playerInput The player's message content that may contain color codes
+     * @param player The player to check permissions for
+     * @return A component with channel base color applied and player input processed with permissions
+     */
+    public static Component parsePlayerInputWithPermissions(String channelBaseColor, String playerInput, ServerPlayer player) {
+        if (playerInput == null || playerInput.isEmpty()) {
+            return Component.empty();
+        }
+
+        // First, apply the channel's base color (always allowed)
+        MutableComponent result = Component.empty();
+        
+        // Parse the channel base color without permission checks
+        Component baseColorComponent = parseColors(channelBaseColor);
+        Style baseStyle = baseColorComponent.getStyle();
+        
+        // Now process the player input with permission checks, starting with the base style
+        boolean hasColorPerm = Verbatim.permissionService.hasPermission(player, PERM_CHAT_COLOR, 2);
+        boolean hasFormatPerm = Verbatim.permissionService.hasPermission(player, PERM_CHAT_FORMAT, 2);
+
+        String[] parts = playerInput.split("(?i)(?=&[0-9a-fk-or])");
+        Style currentStyle = baseStyle; // Start with the channel's base style
+
+        for (String part : parts) {
+            if (part.isEmpty()) continue;
+
+            if (part.startsWith("&") && part.length() >= 2) {
+                char code = part.charAt(1);
+                ChatFormatting formatting = ChatFormatting.getByCode(code);
+                String textContent = part.substring(2);
+
+                boolean allowCode = false;
+                if (formatting != null) {
+                    if (formatting.isColor()) {
+                        // Color codes require verbatim.chatcolor permission
+                        allowCode = hasColorPerm;
+                    } else if (formatting == ChatFormatting.RESET) {
+                        // Reset is allowed if player has either permission, but resets to base style
+                        allowCode = hasColorPerm || hasFormatPerm;
+                    } else {
+                        // Formatting codes (bold, italic, etc.) require verbatim.chatformat permission
+                        allowCode = hasFormatPerm;
+                    }
+
+                    if (allowCode) {
+                        if (formatting.isColor()) {
+                            currentStyle = Style.EMPTY.withColor(formatting);
+                        } else if (formatting == ChatFormatting.RESET) {
+                            currentStyle = baseStyle; // Reset to channel base style, not empty
+                        } else {
+                            currentStyle = applyStyle(currentStyle, formatting);
+                        }
+                    }
+                    // If code not allowed, we just ignore it and continue with current style
+                }
+                
+                if (!textContent.isEmpty()) {
+                    result.append(Component.literal(textContent).setStyle(currentStyle));
+                }
+            } else {
+                // No color code at the beginning of this part, append with current style
+                result.append(Component.literal(part).setStyle(currentStyle));
+            }
+        }
+        
+        return result;
+    }
+
     public static Component parseColors(String text) {
         if (text == null || text.isEmpty()) {
             return Component.empty(); // Prefer Component.empty() over Component.literal("")

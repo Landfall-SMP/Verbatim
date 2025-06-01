@@ -403,18 +403,18 @@ public class VerbatimCommands {
         // Update recipient's last incoming DM sender
         ChatChannelManager.setLastIncomingDmSender(target, sender.getUUID());
         
-        // Format and send DM messages
+        // Use permission-based parsing for player input only, preserving white base color
         MutableComponent senderMessage = Component.literal("[You -> ")
             .withStyle(ChatFormatting.LIGHT_PURPLE)
             .append(Component.literal(target.getName().getString()).withStyle(ChatFormatting.YELLOW))
             .append(Component.literal("]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-            .append(Component.literal(message).withStyle(ChatFormatting.WHITE));
+            .append(ChatFormattingUtils.parsePlayerInputWithPermissions("&f", message, sender));
             
         MutableComponent recipientMessage = Component.literal("[")
             .withStyle(ChatFormatting.LIGHT_PURPLE)
             .append(Component.literal(sender.getName().getString()).withStyle(ChatFormatting.YELLOW))
             .append(Component.literal(" -> You]: ").withStyle(ChatFormatting.LIGHT_PURPLE))
-            .append(Component.literal(message).withStyle(ChatFormatting.WHITE));
+            .append(ChatFormattingUtils.parsePlayerInputWithPermissions("&f", message, sender));
         
         sender.sendSystemMessage(senderMessage);
         target.sendSystemMessage(recipientMessage);

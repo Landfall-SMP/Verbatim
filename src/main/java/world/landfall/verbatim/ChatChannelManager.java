@@ -224,7 +224,12 @@ public class ChatChannelManager {
         player.getPersistentData().putString("verbatim:joined_channels", String.join(",", currentJoined));
         FocusTarget currentFocused = playerFocus.get(player.getUUID());
         if (currentFocused instanceof ChatFocus) {
-            player.getPersistentData().putString("verbatim:focused_channel", ((ChatFocus) currentFocused).getChannelName());
+            String channelName = ((ChatFocus) currentFocused).getChannelName();
+            if (channelName != null) {
+                player.getPersistentData().putString("verbatim:focused_channel", channelName);
+            } else {
+                player.getPersistentData().remove("verbatim:focused_channel");
+            }
         } else {
             player.getPersistentData().remove("verbatim:focused_channel");
         }
